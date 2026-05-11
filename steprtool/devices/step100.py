@@ -124,6 +124,7 @@ class Step100Controller(DeviceController):
             status=status,
             operator=operator.label(),
             timestamp=now_iso(),
+            inputs={"step100_freq": freq_khz},
         )
         logger.info(
             "[%s] step100.change_frequency %s | bytes %s | status=%s",

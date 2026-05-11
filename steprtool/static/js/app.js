@@ -153,6 +153,12 @@ function applyDeviceSnapshot(snap) {
   setDeviceState(snap.device, snap.busy, snap.mock, snap.seconds_remaining || 0);
 }
 
+// Map of input keys (sent by the server) to DOM elements they should populate.
+const INPUT_FIELD_MAP = {
+  step100_freq: () => els.step100Freq,
+  dcu2_az:      () => els.dcu2Az,
+};
+
 function applyLastAction(la) {
   if (!la) return;
   els.laTimestamp.textContent = la.timestamp || "—";
@@ -169,6 +175,18 @@ function applyLastAction(la) {
   else if (s === "MOCK") els.laStatus.classList.add("status-mock");
   else if (s === "NOT IMPLEMENTED") els.laStatus.classList.add("status-noimp");
   else if (s === "ERROR") els.laStatus.classList.add("status-err");
+
+  // Push committed input values into the form fields so every connected
+  // browser reflects what the most recent operator sent. We update
+  // unconditionally; the per-device lock prevents two clients from racing
+  // a command, and other clients can re-edit once the lock clears.
+  const inputs = la.inputs || {};
+  for (const key in inputs) {
+    const lookup = INPUT_FIELD_MAP[key];
+    if (!lookup) continue;
+    const el = lookup();
+    if (el) el.value = inputs[key];
+  }
 }
 
 /* ----------------------------------------------------------- socket.io */

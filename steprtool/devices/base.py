@@ -72,6 +72,10 @@ class LastAction:
     status: str            # "SENT" | "MOCK" | "NOT IMPLEMENTED"
     operator: str          # "KJ5BYZ Brownell"
     timestamp: str         # ISO 8601 UTC
+    inputs: dict = field(default_factory=dict)
+    # 'inputs' lets the server push committed values back to every browser's
+    # input boxes so a command issued on one screen is reflected on the others.
+    # Keys are stable client-side identifiers, e.g. "step100_freq" or "dcu2_az".
 
     def to_dict(self) -> dict:
         return {
@@ -82,6 +86,7 @@ class LastAction:
             "status": self.status,
             "operator": self.operator,
             "timestamp": self.timestamp,
+            "inputs": self.inputs,
         }
 
 
