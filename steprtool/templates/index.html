@@ -33,6 +33,13 @@
   </div>
 </header>
 
+<!-- Strip of operators currently connected. Populated from the 'online_users'
+     socket event. Each user appears once, deduped by callsign. -->
+<div class="online-users" id="online-users-bar">
+  <span class="online-label">Online</span>
+  <div class="online-pills" id="online-pills"></div>
+</div>
+
 <main class="grid">
 
   <!-- Step 100 panel -->
@@ -41,6 +48,15 @@
       <h2>Step 100</h2>
       <div class="panel-port" id="step100-port">port —</div>
     </div>
+
+    <fieldset class="direction-fieldset">
+      <legend>Direction</legend>
+      <div class="direction-options">
+        <label><input type="radio" name="step100-direction" value="normal" checked> <span>Normal</span></label>
+        <label><input type="radio" name="step100-direction" value="180"> <span>180°</span></label>
+        <label><input type="radio" name="step100-direction" value="bidirectional"> <span>Bidirectional</span></label>
+      </div>
+    </fieldset>
 
     <label class="field">
       <span>Frequency (kHz)</span>
@@ -96,9 +112,14 @@
 
   <!-- Last Action panel (full-width) -->
   <section class="panel panel-wide" id="last-action-panel">
-    <div class="panel-head">
-      <h2>Last Action</h2>
-      <div class="panel-port" id="la-timestamp">—</div>
+    <div class="panel-head la-head">
+      <div class="la-title">
+        <h2>Last Action</h2>
+        <span class="la-timestamp-inline" id="la-timestamp">—</span>
+      </div>
+      <div class="big-countdown" id="big-countdown" aria-live="polite">
+        <!-- Populated by JS when a device is busy. -->
+      </div>
     </div>
     <div class="la-grid">
       <div class="la-cell"><span class="la-label">Device</span><span id="la-device">—</span></div>
