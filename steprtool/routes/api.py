@@ -1,7 +1,8 @@
 """HTTP API for steprtool.
 
 All command endpoints require an operator (name + callsign) in the JSON body.
-Successful command responses include the bytes sent and the wait_seconds.
+All command endpoints also reject the request with HTTP 403 if the antenna
+state is currently 'disconnected' (via lightning email or URL override).
 """
 
 from __future__ import annotations
@@ -20,12 +21,10 @@ logger = logging.getLogger(__name__)
 api = Blueprint("api", __name__, url_prefix="/api")
 
 
-# Callsign: letters + digits, 3..10 chars. Forgiving — covers US plus most DX.
 _CALLSIGN_RE = re.compile(r"^[A-Z0-9]{3,10}$")
 
 
 def _extract_operator(payload: dict) -> Operator:
-    """Pull and validate the operator block from the request body."""
     op = payload.get("operator") or {}
     name = (op.get("name") or "").strip()
     callsign = (op.get("callsign") or "").strip().upper()
@@ -34,22 +33,29 @@ def _extract_operator(payload: dict) -> Operator:
     if not callsign:
         raise ValueError("operator.callsign is required")
     if not _CALLSIGN_RE.match(callsign):
-        raise ValueError(
-            "operator.callsign must be 3-10 letters/digits (no punctuation)"
-        )
+        raise ValueError("operator.callsign must be 3-10 letters/digits")
     return Operator(name=name, callsign=callsign)
 
 
 def _extract_direction(payload: dict) -> str:
-    """Pull and validate the Step 100 direction from the request body."""
     direction = (payload.get("direction") or "").strip().lower()
     if not direction:
         raise ValueError("direction is required")
     if direction not in STEP100_DIRECTION_MAP:
-        raise ValueError(
-            f"direction must be one of {list(STEP100_DIRECTION_MAP)}"
-        )
+        raise ValueError(f"direction must be one of {list(STEP100_DIRECTION_MAP)}")
     return direction
+
+
+def _check_antennas_connected():
+    """Return a 403 response if antennas are currently disconnected, else None."""
+    state = current_app.config.get("ANTENNA_STATE")
+    if state is not None and state.is_disconnected():
+        snap = state.snapshot()
+        return jsonify({
+            "error": "antennas disconnected",
+            "antenna_state": snap,
+        }), 403
+    return None
 
 
 def _step100():
@@ -64,11 +70,12 @@ def _dcu2():
 
 @api.get("/status")
 def status():
-    """Snapshot for newly-loaded pages."""
+    state = current_app.config.get("ANTENNA_STATE")
     return jsonify({
         "step100": _step100().state(),
         "dcu2": _dcu2().state(),
         "last_action": current_app.config.get("LAST_ACTION"),
+        "antenna_state": state.snapshot() if state else None,
     })
 
 
@@ -76,6 +83,8 @@ def status():
 
 @api.post("/step100/frequency")
 def step100_frequency():
+    blocked = _check_antennas_connected()
+    if blocked is not None: return blocked
     payload = request.get_json(silent=True) or {}
     try:
         operator = _extract_operator(payload)
@@ -93,25 +102,17 @@ def step100_frequency():
     try:
         result = _step100().change_frequency(freq_khz, direction, operator)
     except DeviceBusy as e:
-        return jsonify({
-            "error": "device busy",
-            "seconds_remaining": e.seconds_remaining,
-        }), 409
+        return jsonify({"error": "device busy", "seconds_remaining": e.seconds_remaining}), 409
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
-    return jsonify({
-        "device": "step100",
-        "action": result.action,
-        "detail": result.detail,
-        "bytes_hex": result.bytes_hex,
-        "status": result.status,
-        "wait_seconds": result.wait_seconds,
-    })
+    return jsonify(_command_result_json("step100", result))
 
 
 @api.post("/step100/home")
 def step100_home():
+    blocked = _check_antennas_connected()
+    if blocked is not None: return blocked
     payload = request.get_json(silent=True) or {}
     try:
         operator = _extract_operator(payload)
@@ -122,25 +123,17 @@ def step100_home():
     try:
         result = _step100().home(direction, operator)
     except DeviceBusy as e:
-        return jsonify({
-            "error": "device busy",
-            "seconds_remaining": e.seconds_remaining,
-        }), 409
+        return jsonify({"error": "device busy", "seconds_remaining": e.seconds_remaining}), 409
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
-    return jsonify({
-        "device": "step100",
-        "action": result.action,
-        "detail": result.detail,
-        "bytes_hex": result.bytes_hex,
-        "status": result.status,
-        "wait_seconds": result.wait_seconds,
-    })
+    return jsonify(_command_result_json("step100", result))
 
 
 @api.post("/step100/calibrate")
 def step100_calibrate():
+    blocked = _check_antennas_connected()
+    if blocked is not None: return blocked
     payload = request.get_json(silent=True) or {}
     try:
         operator = _extract_operator(payload)
@@ -151,26 +144,19 @@ def step100_calibrate():
     try:
         result = _step100().calibrate(direction, operator)
     except DeviceBusy as e:
-        return jsonify({
-            "error": "device busy",
-            "seconds_remaining": e.seconds_remaining,
-        }), 409
+        return jsonify({"error": "device busy", "seconds_remaining": e.seconds_remaining}), 409
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
-    return jsonify({
-        "device": "step100",
-        "action": result.action,
-        "detail": result.detail,
-        "bytes_hex": result.bytes_hex,
-        "status": result.status,
-        "wait_seconds": result.wait_seconds,
-    })
+
+    return jsonify(_command_result_json("step100", result))
 
 
 # ---------------------------------------------------------------------- DCU-2
 
 @api.post("/dcu2/azimuth")
 def dcu2_azimuth():
+    blocked = _check_antennas_connected()
+    if blocked is not None: return blocked
     payload = request.get_json(silent=True) or {}
     try:
         operator = _extract_operator(payload)
@@ -187,18 +173,19 @@ def dcu2_azimuth():
     try:
         result = _dcu2().change_direction(azimuth, operator)
     except DeviceBusy as e:
-        return jsonify({
-            "error": "device busy",
-            "seconds_remaining": e.seconds_remaining,
-        }), 409
+        return jsonify({"error": "device busy", "seconds_remaining": e.seconds_remaining}), 409
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
-    return jsonify({
-        "device": "dcu2",
+    return jsonify(_command_result_json("dcu2", result))
+
+
+def _command_result_json(device: str, result) -> dict:
+    return {
+        "device": device,
         "action": result.action,
         "detail": result.detail,
         "bytes_hex": result.bytes_hex,
         "status": result.status,
         "wait_seconds": result.wait_seconds,
-    })
+    }

@@ -1,0 +1,328 @@
+"""IMAP polling listener for lightning-detector emails.
+
+Watches a single mailbox (typically `steprtool-alerts@w5gad.org`) for messages
+whose subject or body contains the phrase "Antennas Disconnected." or
+"Antennas Connected." and pushes the resulting state into AntennaState.
+
+Connection model: poll-and-disconnect. Every POLL_SECONDS we open an IMAPS
+connection, login, SELECT INBOX, SEARCH for messages since the most recent
+timestamp we've already processed (or, on first poll, since N days ago),
+process each new UID, then close. This avoids stale-connection issues and
+keeps the listener forgiving of network blips.
+
+Timestamp extraction supports the lightning-detector body format, e.g.
+"05/22/2026, 02:14:19 PM Central Daylight Time". If that isn't found, we
+fall back to the email's Date: header. If neither is present, we use
+"now" — a last resort.
+
+This module uses only the Python stdlib (imaplib, email, ssl).
+"""
+
+from __future__ import annotations
+
+import email
+import imaplib
+import logging
+import re
+import ssl
+import threading
+from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
+from typing import Optional
+
+
+logger = logging.getLogger(__name__)
+
+
+# Phrase matching is case-insensitive substring; the period in the user's
+# spec is included but treated as optional in case the device occasionally
+# omits it.
+_PHRASE_DISCONNECT = re.compile(r"antennas\s+disconnected\.?", re.IGNORECASE)
+_PHRASE_CONNECT    = re.compile(r"antennas\s+connected\.?",    re.IGNORECASE)
+
+# Long timezone name -> short abbreviation -> UTC offset.
+# US zones (where the antenna and the lightning detector live) covered;
+# extend here if needed.
+_TZ_ABBREV = {
+    "central daylight time":  "-0500",
+    "central standard time":  "-0600",
+    "eastern daylight time":  "-0400",
+    "eastern standard time":  "-0500",
+    "mountain daylight time": "-0600",
+    "mountain standard time": "-0700",
+    "pacific daylight time":  "-0700",
+    "pacific standard time":  "-0800",
+    "atlantic daylight time": "-0300",
+    "atlantic standard time": "-0400",
+    "alaska daylight time":   "-0800",
+    "alaska standard time":   "-0900",
+    "hawaii standard time":   "-1000",
+    "utc":                    "+0000",
+    "gmt":                    "+0000",
+}
+
+# Matches "05/22/2026, 02:14:19 PM Central Daylight Time" and similar.
+_TIMESTAMP_RE = re.compile(
+    r"(?P<date>\d{1,2}/\d{1,2}/\d{4})"
+    r"[,\s]+"
+    r"(?P<time>\d{1,2}:\d{2}:\d{2}\s*[AaPp][Mm])"
+    r"\s+"
+    r"(?P<tz>(?:[A-Za-z]+\s+)+Time|UTC|GMT)"
+)
+
+
+def parse_phrase_status(text: str) -> Optional[str]:
+    """Return 'connected', 'disconnected', or None for non-matching text."""
+    if _PHRASE_DISCONNECT.search(text):
+        return "disconnected"
+    if _PHRASE_CONNECT.search(text):
+        return "connected"
+    return None
+
+
+def parse_body_timestamp(text: str) -> Optional[datetime]:
+    """Pull the lightning-detector timestamp from message text, or None."""
+    m = _TIMESTAMP_RE.search(text)
+    if not m:
+        return None
+    date_str = m.group("date")
+    time_str = m.group("time").upper().replace(" ", "")
+    tz_str   = m.group("tz").strip().lower()
+
+    offset = _TZ_ABBREV.get(tz_str)
+    if offset is None:
+        logger.debug("unknown timezone name in body: %r", tz_str)
+        return None
+
+    full = f"{date_str} {time_str} {offset}"
+    try:
+        dt = datetime.strptime(full, "%m/%d/%Y %I:%M:%S%p %z")
+    except ValueError as e:
+        logger.debug("body timestamp parse failed for %r: %s", full, e)
+        return None
+    return dt.astimezone(timezone.utc)
+
+
+def _get_message_text(msg) -> str:
+    """Extract a concatenation of subject + plain-text body for matching."""
+    parts: list[str] = []
+    subject = msg.get("Subject", "")
+    if subject:
+        parts.append(subject)
+
+    if msg.is_multipart():
+        for sub in msg.walk():
+            ct = sub.get_content_type()
+            if ct == "text/plain":
+                payload = sub.get_payload(decode=True)
+                if payload:
+                    charset = sub.get_content_charset() or "utf-8"
+                    try:
+                        parts.append(payload.decode(charset, errors="replace"))
+                    except LookupError:
+                        parts.append(payload.decode("utf-8", errors="replace"))
+        # If no text/plain, fall back to text/html (strip tags crudely)
+        if len(parts) <= 1:
+            for sub in msg.walk():
+                if sub.get_content_type() == "text/html":
+                    payload = sub.get_payload(decode=True)
+                    if payload:
+                        charset = sub.get_content_charset() or "utf-8"
+                        try:
+                            html_text = payload.decode(charset, errors="replace")
+                        except LookupError:
+                            html_text = payload.decode("utf-8", errors="replace")
+                        # Crude tag strip; good enough for phrase matching.
+                        parts.append(re.sub(r"<[^>]+>", " ", html_text))
+    else:
+        payload = msg.get_payload(decode=True)
+        if payload:
+            charset = msg.get_content_charset() or "utf-8"
+            try:
+                parts.append(payload.decode(charset, errors="replace"))
+            except LookupError:
+                parts.append(payload.decode("utf-8", errors="replace"))
+
+    return "\n".join(parts)
+
+
+def _message_timestamp(msg, body_text: str) -> datetime:
+    """Prefer the body's lightning-detector timestamp; fall back to Date:."""
+    body_ts = parse_body_timestamp(body_text)
+    if body_ts is not None:
+        return body_ts
+    date_header = msg.get("Date")
+    if date_header:
+        try:
+            hdr = parsedate_to_datetime(date_header)
+            if hdr.tzinfo is None:
+                hdr = hdr.replace(tzinfo=timezone.utc)
+            return hdr.astimezone(timezone.utc)
+        except Exception:
+            pass
+    return datetime.now(timezone.utc)
+
+
+class EmailListener:
+    """Polls an IMAP mailbox for lightning-detector status messages."""
+
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        username: str,
+        password: str,
+        poll_seconds: int,
+        walkback_days: int,
+        antenna_state,
+    ):
+        self.host = host
+        self.port = port
+        self.username = username
+        # Gmail's App Password UI sometimes displays the 16-char password
+        # broken with spaces every 4 chars; users frequently paste it that
+        # way. Strip whitespace to be forgiving.
+        self.password = "".join((password or "").split())
+        self.poll_seconds = poll_seconds
+        self.walkback_days = walkback_days
+        self.antenna_state = antenna_state
+
+        self._processed_uids: set[bytes] = set()
+        self._stop = threading.Event()
+        self._thread: Optional[threading.Thread] = None
+
+    # ----------------------------------------------------------- lifecycle
+
+    def start(self) -> None:
+        """Walk back synchronously to seed initial state, then start polling."""
+        try:
+            self._initial_walkback()
+        except Exception as e:
+            logger.exception("IMAP initial walkback failed: %s", e)
+            # Safety: when we can't reach the mailbox we don't know state;
+            # default to disconnected per the agreed policy.
+            self.antenna_state.replace_default("disconnected", source="default")
+
+        self._thread = threading.Thread(
+            target=self._poll_loop, name="email-listener", daemon=True,
+        )
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+
+    # ----------------------------------------------------- IMAP operations
+
+    def _connect(self) -> imaplib.IMAP4_SSL:
+        ctx = ssl.create_default_context()
+        # Connection-level timeout via socket. imaplib doesn't expose one
+        # directly; we set it on the underlying socket after construction.
+        M = imaplib.IMAP4_SSL(self.host, self.port, ssl_context=ctx)
+        try:
+            M.sock.settimeout(20.0)
+        except Exception:
+            pass
+        M.login(self.username, self.password)
+        return M
+
+    def _fetch_and_handle(self, M: imaplib.IMAP4_SSL, uids: list[bytes]) -> None:
+        """Fetch each UID, parse, and apply via antenna_state.update()."""
+        for uid in uids:
+            if uid in self._processed_uids:
+                continue
+            try:
+                typ, msg_data = M.uid("fetch", uid, "(RFC822)")
+            except Exception as e:
+                logger.warning("IMAP UID FETCH %r failed: %s", uid, e)
+                continue
+            if typ != "OK" or not msg_data or msg_data[0] is None:
+                continue
+
+            try:
+                raw = msg_data[0][1] if isinstance(msg_data[0], tuple) else msg_data[0]
+                msg = email.message_from_bytes(raw)
+                body_text = _get_message_text(msg)
+                status = parse_phrase_status(body_text)
+                if status is None:
+                    # Not one of ours — still mark UID as processed to avoid
+                    # re-evaluating it every poll.
+                    self._processed_uids.add(uid)
+                    continue
+                ts = _message_timestamp(msg, body_text)
+                self.antenna_state.update(
+                    status=status, timestamp=ts, source="email", operator=None,
+                )
+                self._processed_uids.add(uid)
+                logger.info(
+                    "email UID %s -> antenna %s at %s",
+                    uid.decode("ascii", "replace"), status,
+                    ts.isoformat(timespec="seconds"),
+                )
+            except Exception as e:
+                logger.warning("IMAP message %r processing failed: %s", uid, e)
+
+    def _search_since(self, M: imaplib.IMAP4_SSL, days_ago: int) -> list[bytes]:
+        """Return UIDs of messages received in the last `days_ago` days."""
+        since = (datetime.now(timezone.utc) - timedelta(days=days_ago)).strftime("%d-%b-%Y")
+        typ, data = M.uid("search", None, f"SINCE {since}")
+        if typ != "OK" or not data or not data[0]:
+            return []
+        return data[0].split()
+
+    # ----------------------------------------------------- walkback + loop
+
+    def _initial_walkback(self) -> None:
+        logger.info("IMAP walkback: looking back %d days on %s:%d as %s",
+                    self.walkback_days, self.host, self.port, self.username)
+        M = self._connect()
+        try:
+            typ, _ = M.select("INBOX", readonly=True)
+            if typ != "OK":
+                raise RuntimeError("IMAP SELECT INBOX failed")
+            uids = self._search_since(M, self.walkback_days)
+            logger.info("walkback: %d candidate message(s) in window", len(uids))
+            # Sort lexicographically -> numerically ascending UID, which on
+            # Gmail equals chronological. update() drops stale events, so the
+            # most recent matching message wins.
+            for uid in sorted(uids, key=lambda b: int(b)):
+                self._fetch_and_handle(M, [uid])
+            # If nothing matched, the antenna_state placeholder ("connected"
+            # from __init__) is wrong per our safety policy. Flip default.
+            snap = self.antenna_state.snapshot()
+            if snap["source"] == "default" and snap["status"] == "connected":
+                logger.info("walkback: no matching emails found; defaulting to disconnected")
+                self.antenna_state.replace_default("disconnected", source="default")
+        finally:
+            try: M.close()
+            except Exception: pass
+            try: M.logout()
+            except Exception: pass
+
+    def _poll_once(self) -> None:
+        M = self._connect()
+        try:
+            typ, _ = M.select("INBOX", readonly=True)
+            if typ != "OK":
+                raise RuntimeError("IMAP SELECT INBOX failed")
+            uids = self._search_since(M, days_ago=1)
+            new_uids = [u for u in uids if u not in self._processed_uids]
+            if new_uids:
+                logger.debug("poll: %d new UID(s)", len(new_uids))
+                self._fetch_and_handle(M, sorted(new_uids, key=lambda b: int(b)))
+        finally:
+            try: M.close()
+            except Exception: pass
+            try: M.logout()
+            except Exception: pass
+
+    def _poll_loop(self) -> None:
+        # First sleep before the first poll to avoid hammering the server
+        # right after the walkback.
+        while not self._stop.is_set():
+            self._stop.wait(self.poll_seconds)
+            if self._stop.is_set():
+                break
+            try:
+                self._poll_once()
+            except Exception as e:
+                logger.warning("IMAP poll error: %s", e)

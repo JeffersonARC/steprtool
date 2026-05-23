@@ -11,9 +11,11 @@ from pathlib import Path
 from flask import Flask, request
 from flask_socketio import SocketIO, emit
 
+from .antenna_state import AntennaState
 from .config import Config
 from .devices.dcu2 import Dcu2Controller
 from .devices.step100 import Step100Controller
+from .email_listener import EmailListener
 from .routes.api import api as api_blueprint
 from .routes.pages import pages as pages_blueprint
 from .udp_listener import UdpListener
@@ -50,41 +52,37 @@ def create_app(config: Config) -> tuple[Flask, SocketIO]:
     _setup_logging()
     log = logging.getLogger(__name__)
 
-    app = Flask(
-        __name__,
-        static_folder="static",
-        template_folder="templates",
-    )
+    app = Flask(__name__, static_folder="static", template_folder="templates")
     app.config["SECRET_KEY"] = "steprtool-not-used-for-auth"
 
     socketio = SocketIO(
-        app,
-        cors_allowed_origins="*",
-        async_mode="threading",
-        logger=False,
-        engineio_logger=False,
+        app, cors_allowed_origins="*", async_mode="threading",
+        logger=False, engineio_logger=False,
     )
 
-    # Build device controllers and stash for the route layer.
+    # Antenna state. Default to 'connected' so dev/testing without email
+    # is usable; the email listener (if enabled) will overwrite this with
+    # walkback truth, or flip to 'disconnected' if walkback finds nothing.
+    antenna_state = AntennaState(socketio, default_status="connected")
+    app.config["ANTENNA_STATE"] = antenna_state
+
+    # Device controllers.
     step100 = Step100Controller(
         config.step100, socketio,
         freq_change_tens_of_hz=config.udp.freq_change_tens_of_hz,
     )
+    step100.antenna_state = antenna_state          # for auto-retune gating
     dcu2 = Dcu2Controller(config.dcu2, socketio)
     app.config["STEP100"] = step100
     app.config["DCU2"] = dcu2
     app.config["LAST_ACTION"] = None
 
-    # ---- Online users tracking ----
-    # Keyed by Socket.IO session id. Each value:
-    #   {"name": str, "callsign": str, "ip": str, "connected_at": ISO8601 str}
-    # IP is retained server-side but never broadcast.
+    # Online users.
     online_users: dict[str, dict] = {}
     online_users_lock = threading.Lock()
     app.config["ONLINE_USERS"] = online_users
 
     def online_users_public() -> list[dict]:
-        """De-duplicated list (by callsign) shipped to the UI."""
         with online_users_lock:
             unique: dict[str, str] = {}
             for info in online_users.values():
@@ -96,18 +94,17 @@ def create_app(config: Config) -> tuple[Flask, SocketIO]:
     def broadcast_online_users() -> None:
         socketio.emit("online_users", online_users_public())
 
-    # Keep a server-side copy of the most recent last-action so new clients
-    # can catch up on connect.
-    _orig_broadcast_step100 = step100._broadcast_last_action
+    # Wrap controllers' broadcast so we keep a server-side LAST_ACTION copy.
+    _orig_step100 = step100._broadcast_last_action
     def _wrapped_step100(last):
         app.config["LAST_ACTION"] = last.to_dict()
-        _orig_broadcast_step100(last)
+        _orig_step100(last)
     step100._broadcast_last_action = _wrapped_step100  # type: ignore[assignment]
 
-    _orig_broadcast_dcu2 = dcu2._broadcast_last_action
+    _orig_dcu2 = dcu2._broadcast_last_action
     def _wrapped_dcu2(last):
         app.config["LAST_ACTION"] = last.to_dict()
-        _orig_broadcast_dcu2(last)
+        _orig_dcu2(last)
     dcu2._broadcast_last_action = _wrapped_dcu2  # type: ignore[assignment]
 
     app.register_blueprint(pages_blueprint)
@@ -124,12 +121,12 @@ def create_app(config: Config) -> tuple[Flask, SocketIO]:
                 "name": "", "callsign": "", "ip": ip,
                 "connected_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             }
-        # Send current state to the new client.
         emit("state", {
             "step100": step100.state(),
             "dcu2": dcu2.state(),
             "last_action": app.config.get("LAST_ACTION"),
             "online_users": online_users_public(),
+            "antenna_state": antenna_state.snapshot(),
         })
 
     @socketio.on("identify")
@@ -144,11 +141,8 @@ def create_app(config: Config) -> tuple[Flask, SocketIO]:
             if info is not None:
                 info["name"] = name
                 info["callsign"] = callsign
-                logger_label = f"{callsign} {name}".strip() or "(unidentified)"
-                logging.getLogger(__name__).info(
-                    "identify sid=%s ip=%s as %s",
-                    sid, info.get("ip"), logger_label,
-                )
+                log.info("identify sid=%s ip=%s as %s %s",
+                         sid, info.get("ip"), callsign, name)
         broadcast_online_users()
 
     @socketio.on("disconnect")
@@ -159,13 +153,35 @@ def create_app(config: Config) -> tuple[Flask, SocketIO]:
         broadcast_online_users()
 
     # ---- UDP listener ----
-    listener = UdpListener(
+    udp = UdpListener(
         host=config.udp.bind_host,
         ports=config.udp.ports,
         step100_controller=step100,
     )
-    listener.start()
-    app.config["UDP_LISTENER"] = listener
+    udp.start()
+    app.config["UDP_LISTENER"] = udp
+
+    # ---- Email listener ----
+    if config.email.enabled:
+        email = EmailListener(
+            host=config.email.imap_host,
+            port=config.email.imap_port,
+            username=config.email.username,
+            password=config.email.password,
+            poll_seconds=config.email.poll_seconds,
+            walkback_days=config.email.walkback_days,
+            antenna_state=antenna_state,
+        )
+        email.start()
+        app.config["EMAIL_LISTENER"] = email
+        log.info(
+            "Email listener enabled: %s@%s:%d poll=%ds walkback=%dd",
+            config.email.username, config.email.imap_host, config.email.imap_port,
+            config.email.poll_seconds, config.email.walkback_days,
+        )
+    else:
+        log.info("Email listener disabled (EMAIL_ENABLED=false). "
+                 "Antenna state defaults to 'connected'.")
 
     log.info(
         "Configuration: Step 100 port=%s wait=%ds direction=%s | "

@@ -66,6 +66,18 @@ class UdpConfig:
 
 
 @dataclass
+class EmailConfig:
+    """IMAP polling settings for lightning-detector alert emails."""
+    enabled: bool
+    imap_host: str
+    imap_port: int
+    username: str
+    password: str
+    poll_seconds: int
+    walkback_days: int
+
+
+@dataclass
 class WebConfig:
     host: str
     port: int
@@ -79,6 +91,7 @@ class Config:
     step100: Step100Config
     dcu2: Dcu2Config
     udp: UdpConfig
+    email: EmailConfig
 
 
 class ConfigError(Exception):
@@ -198,9 +211,31 @@ def load_config(env_path: Path | None = None) -> Config:
         freq_change_tens_of_hz=freq_change,
     )
 
+    email_enabled = _env_bool("EMAIL_ENABLED", False)
+    email_password = _env("EMAIL_PASSWORD", "")
+    email_username = _env("EMAIL_USERNAME", "").strip()
+    if email_enabled:
+        if not email_username:
+            raise ConfigError("EMAIL_USERNAME is required when EMAIL_ENABLED=true")
+        if not email_password:
+            raise ConfigError("EMAIL_PASSWORD is required when EMAIL_ENABLED=true")
+    email = EmailConfig(
+        enabled=email_enabled,
+        imap_host=_env("EMAIL_IMAP_HOST", "imap.gmail.com").strip(),
+        imap_port=_env_int("EMAIL_IMAP_PORT", 993),
+        username=email_username,
+        password=email_password,
+        poll_seconds=_env_int("EMAIL_POLL_SECONDS", 10),
+        walkback_days=_env_int("EMAIL_WALKBACK_DAYS", 30),
+    )
+    if email.poll_seconds < 2:
+        raise ConfigError("EMAIL_POLL_SECONDS must be >= 2")
+    if email.walkback_days < 1:
+        raise ConfigError("EMAIL_WALKBACK_DAYS must be >= 1")
+
     if step100.wait_seconds < 0:
         raise ConfigError("STEP100_WAIT_SECONDS must be >= 0")
     if dcu2.wait_seconds < 0:
         raise ConfigError("DCU2_WAIT_SECONDS must be >= 0")
 
-    return Config(web=web, step100=step100, dcu2=dcu2, udp=udp)
+    return Config(web=web, step100=step100, dcu2=dcu2, udp=udp, email=email)

@@ -114,6 +114,11 @@ class Step100Controller(DeviceController):
 
         self.freq_change_tens_of_hz = freq_change_tens_of_hz
 
+        # Set by app.py after construction. When non-None and reporting
+        # "disconnected", auto-retune is suppressed. (Manual commands are
+        # blocked at the route layer; this guard is for the UDP path.)
+        self.antenna_state = None
+
     # ----------------------------------------------------- frame construction
 
     def build_frame(self, freq_tens_of_hz: int, direction: str, cmd_byte: int) -> bytes:
@@ -313,6 +318,12 @@ class Step100Controller(DeviceController):
         if new_freq_tens_of_hz > MAX_WIRE_TENS_OF_HZ:
             logger.warning(
                 "auto-retune: N1MM TXFreq %d exceeds Step 100 protocol max; skipping",
+                new_freq_tens_of_hz,
+            )
+            return False
+        if self.antenna_state is not None and self.antenna_state.is_disconnected():
+            logger.info(
+                "auto-retune: antennas disconnected; skipping (new_freq=%d)",
                 new_freq_tens_of_hz,
             )
             return False
