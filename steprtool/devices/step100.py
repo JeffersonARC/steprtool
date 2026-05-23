@@ -17,10 +17,9 @@ Wire protocol (per SteppIR "Transceiver Interface" doc, 06/23/11):
     9   0x00              ignored
    10   0x0D              CR terminator
 
-Direction values (we use three; 0x20 "3/4 wave" is for verticals, not used):
+Direction values (we use two; "bidirectional" and "3/4 wave" is for verticals, not used):
    0x00 normal
    0x40 180 (reverse)
-   0x80 bidirectional
 
 Commands implemented:
    'R' 0x52  set frequency + direction; also re-enables serial freq update
@@ -37,6 +36,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from time import sleep
 from dataclasses import dataclass
 from typing import Optional
 
@@ -62,6 +62,7 @@ MIN_FREQ_KHZ = 1
 CMD_CHANGE_FREQ = 0x52  # 'R'
 CMD_HOME        = 0x53  # 'S'
 CMD_CALIBRATE   = 0x56  # 'V'
+CMD_SET_AUTOTRACK = 0x00 # '?'
 
 
 @dataclass
@@ -177,6 +178,9 @@ class Step100Controller(DeviceController):
             tens_of_hz = freq_khz * 100
             frame = self.build_frame(tens_of_hz, direction, CMD_CHANGE_FREQ)
             hex_str, status = self._send(frame)
+            sleep(1.0)
+            hex_str, status = self._send(frame)
+
         except Exception:
             self._release_lock()
             raise

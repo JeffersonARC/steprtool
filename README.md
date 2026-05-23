@@ -37,7 +37,7 @@ All settings live in `.env`. Copy `.env.example` and edit:
 | `STEP100_STOPBITS`          | `1`            | 1, 1.5, or 2 |
 | `STEP100_DTR` / `STEP100_RTS` | `false`      | line states after open |
 | `STEP100_WAIT_SECONDS`      | `10`           | lock duration after a command |
-| `STEP100_DIRECTION`         | `normal`       | element pattern: `normal`, `180`, `bidirectional` |
+| `STEP100_DIRECTION`         | `normal`       | element pattern: `normal`, `180` |
 | `DCU2_PORT`                 | `MOCK`         | |
 | `DCU2_BAUD`                 | `4800`         | |
 | ...                         |                | (same shape as Step 100) |
@@ -57,7 +57,7 @@ real COM port name and restart steprtool.
 | 2 | `0x00` | constant |
 | 3..5 | freq | tens-of-Hz, 24-bit big-endian (UI accepts kHz; multiplied by 100) |
 | 6 | `0x00` | constant |
-| 7 | direction | `0x00` normal / `0x40` 180 / `0x80` bidirectional |
+| 7 | direction | `0x00` normal / `0x40` 180  |
 | 8 | `0x52` | `R` (retune command) |
 | 9 | `0x00` | constant |
 | 10 | `0x0D` | CR |

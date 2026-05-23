@@ -14,8 +14,7 @@ from dotenv import load_dotenv
 # Direction names -> byte 7 value in the Step 100 command frame.
 STEP100_DIRECTION_MAP = {
     "normal": 0x00,
-    "180": 0x40,
-    "bidirectional": 0x80,
+    "180": 0x40
 }
 
 # pyserial constants come from the package; we mirror the accepted strings
@@ -45,7 +44,7 @@ class SerialConfig:
 class Step100Config:
     serial: SerialConfig
     wait_seconds: int
-    direction: str       # "normal" | "180" | "bidirectional"
+    direction: str       # "normal" | "180" 
 
     @property
     def direction_byte(self) -> int:
