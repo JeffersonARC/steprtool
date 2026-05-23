@@ -2,6 +2,8 @@
    Jefferson ARC StepIR Antenna Control
    Aesthetic direction: utilitarian rack-mount instrument panel.
    Dark base, restrained amber accent, monospace numerics.
+   Sized for touch first: every interactive control >= 48px tall.
+   Hover styles scoped to actual hover-capable devices.
    --------------------------------------------------------------- */
 
 :root {
@@ -21,6 +23,7 @@
   --busy:         #ef6f3a;
   --err:          #d8504a;
   --mock:         #6a8fb5;
+  --tap-min:      48px;     /* WCAG / Material minimum touch target */
 }
 
 * { box-sizing: border-box; }
@@ -31,8 +34,10 @@ html, body {
   background: var(--bg);
   color: var(--text);
   font-family: "IBM Plex Sans", "Segoe UI", "Helvetica Neue", system-ui, sans-serif;
-  font-size: 15px;
+  font-size: 16px;            /* base; prevents iOS zoom on input focus */
+  line-height: 1.4;
   min-height: 100vh;
+  -webkit-text-size-adjust: 100%;
 }
 
 .hex, .mono, input[type="number"], .panel-port, .state-countdown, #la-bytes {
@@ -49,9 +54,11 @@ html, body {
   padding: 12px 20px;
   background: var(--bg-elev);
   border-bottom: 1px solid var(--border);
+  gap: 12px;
+  flex-wrap: wrap;
 }
 .brand {
-  font-size: 17px;
+  font-size: 18px;
   letter-spacing: 0.02em;
   font-weight: 600;
 }
@@ -61,22 +68,29 @@ html, body {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 13px;
+  font-size: 14px;
+  flex-wrap: wrap;
 }
-.op-label { color: var(--text-mute); text-transform: uppercase; letter-spacing: 0.08em; }
+.op-label { color: var(--text-mute); text-transform: uppercase; letter-spacing: 0.08em; font-size: 12px; }
 .op-display { color: var(--text); font-weight: 500; min-width: 1ch; }
 .link-btn {
   background: none;
   border: 1px solid var(--border);
   color: var(--text-dim);
-  padding: 4px 10px;
+  padding: 8px 14px;
   border-radius: 3px;
   cursor: pointer;
   font: inherit;
+  font-size: 14px;
+  min-height: 40px;
 }
-.link-btn:hover { color: var(--accent); border-color: var(--accent-dim); }
+@media (hover: hover) {
+  .link-btn:hover { color: var(--accent); border-color: var(--accent-dim); }
+}
 
-/* ----------------------------------------------------- grid layout */
+/* ----------------------------------------------------- grid layout
+   Stack panels at a generous breakpoint so phones AND small tablets
+   get the comfortable single-column layout. */
 
 .grid {
   display: grid;
@@ -88,8 +102,8 @@ html, body {
 }
 .panel-wide { grid-column: 1 / -1; }
 
-@media (max-width: 760px) {
-  .grid { grid-template-columns: 1fr; }
+@media (max-width: 900px) {
+  .grid { grid-template-columns: 1fr; gap: 14px; padding: 14px; }
 }
 
 /* ----------------------------------------------------- panel */
@@ -98,26 +112,28 @@ html, body {
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-radius: 4px;
-  padding: 16px;
+  padding: 18px;
 }
 .panel-head {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
   border-bottom: 1px solid var(--border);
-  padding-bottom: 8px;
-  margin-bottom: 14px;
+  padding-bottom: 10px;
+  margin-bottom: 16px;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 .panel-head h2 {
   margin: 0;
-  font-size: 13px;
+  font-size: 14px;
   text-transform: uppercase;
   letter-spacing: 0.12em;
   color: var(--text-dim);
   font-weight: 600;
 }
 .panel-port {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-mute);
 }
 
@@ -127,7 +143,7 @@ html, body {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin-bottom: 12px;
+  margin-bottom: 16px;
 }
 .field > span {
   font-size: 12px;
@@ -140,11 +156,12 @@ input[type="number"] {
   border: 1px solid var(--border-strong);
   border-radius: 3px;
   color: var(--accent);
-  font-size: 22px;
-  padding: 10px 12px;
+  font-size: 26px;            /* well above iOS 16px zoom threshold */
+  padding: 14px 14px;
   width: 100%;
   outline: none;
   letter-spacing: 0.04em;
+  min-height: var(--tap-min);
 }
 input[type="number"]:focus { border-color: var(--accent); }
 input[type="number"]::-webkit-outer-spin-button,
@@ -155,19 +172,22 @@ input[type="number"] { -moz-appearance: textfield; }
 
 .button-row {
   display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
+  gap: 10px;
+  margin-bottom: 14px;
   flex-wrap: wrap;
 }
 .btn-primary, .btn-secondary {
   font: inherit;
-  font-size: 14px;
-  padding: 9px 14px;
+  font-size: 16px;
+  padding: 12px 18px;
+  min-height: var(--tap-min);
   border-radius: 3px;
   cursor: pointer;
   letter-spacing: 0.02em;
   border: 1px solid transparent;
   transition: background-color 0.1s, border-color 0.1s;
+  flex: 1 1 auto;             /* fill the row, wrap when too narrow */
+  min-width: 140px;
 }
 .btn-primary {
   background: var(--accent);
@@ -175,13 +195,19 @@ input[type="number"] { -moz-appearance: textfield; }
   font-weight: 600;
   border-color: var(--accent);
 }
-.btn-primary:hover:not(:disabled) { background: #ffba48; border-color: #ffba48; }
 .btn-secondary {
   background: transparent;
   color: var(--text);
   border-color: var(--border-strong);
 }
-.btn-secondary:hover:not(:disabled) { border-color: var(--accent-dim); color: var(--accent); }
+@media (hover: hover) {
+  .btn-primary:hover:not(:disabled) { background: #ffba48; border-color: #ffba48; }
+  .btn-secondary:hover:not(:disabled) { border-color: var(--accent-dim); color: var(--accent); }
+}
+/* Mobile / touch: visible pressed state instead of sticky hover. */
+.btn-primary:active:not(:disabled)   { background: #d9912f; border-color: #d9912f; }
+.btn-secondary:active:not(:disabled) { border-color: var(--accent-dim); color: var(--accent); background: rgba(240,167,58,0.06); }
+
 .btn-primary:disabled, .btn-secondary:disabled {
   opacity: 0.45;
   cursor: not-allowed;
@@ -192,60 +218,74 @@ input[type="number"] { -moz-appearance: textfield; }
 .compass {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 6px;
-  margin-bottom: 12px;
+  gap: 10px;
+  margin-bottom: 16px;
 }
 .compass-btn {
   font: inherit;
   font-family: "IBM Plex Mono", monospace;
-  font-weight: 600;
-  font-size: 13px;
-  padding: 8px;
+  font-weight: 700;
+  font-size: 18px;
+  padding: 10px 6px;
+  min-height: 64px;            /* big finger-target */
   background: var(--bg-input);
   border: 1px solid var(--border-strong);
-  border-radius: 3px;
+  border-radius: 4px;
   color: var(--text-dim);
   cursor: pointer;
+  transition: color 0.1s, border-color 0.1s, background-color 0.1s;
 }
-.compass-btn:hover { color: var(--accent); border-color: var(--accent-dim); }
+@media (hover: hover) {
+  .compass-btn:hover { color: var(--accent); border-color: var(--accent-dim); }
+}
+.compass-btn:active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(240,167,58,0.10);
+}
+@media (max-width: 480px) {
+  .compass { gap: 8px; }
+  .compass-btn { min-height: 60px; font-size: 17px; }
+}
 
 /* ----------------------------------------------------- device state strip */
 
 .device-state {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding-top: 10px;
+  gap: 12px;
+  padding-top: 12px;
   border-top: 1px solid var(--border);
-  font-size: 13px;
+  font-size: 14px;
 }
 .state-dot {
-  width: 9px; height: 9px;
+  width: 11px; height: 11px;
   border-radius: 50%;
   background: var(--ok);
   box-shadow: 0 0 6px var(--ok);
+  flex: 0 0 auto;
 }
-.state-dot.busy { background: var(--busy); box-shadow: 0 0 6px var(--busy); animation: pulse 1.2s ease-in-out infinite; }
+.state-dot.busy { background: var(--busy); box-shadow: 0 0 8px var(--busy); animation: pulse 1.2s ease-in-out infinite; }
 .state-dot.mock { background: var(--mock); box-shadow: 0 0 6px var(--mock); }
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.45; }
 }
-.state-text { color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.08em; font-size: 12px; }
-.state-countdown { color: var(--accent); margin-left: auto; font-weight: 600; }
+.state-text { color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.08em; font-size: 13px; }
+.state-countdown { color: var(--accent); margin-left: auto; font-weight: 600; font-size: 17px; }
 
 /* ----------------------------------------------------- last action */
 
 .la-grid {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr 1fr;
-  gap: 12px 18px;
+  gap: 14px 20px;
 }
 .la-cell {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  font-size: 14px;
+  gap: 4px;
+  font-size: 15px;
   min-width: 0;
 }
 .la-cell.la-full { grid-column: 1 / -1; }
@@ -259,7 +299,7 @@ input[type="number"] { -moz-appearance: textfield; }
   font-size: 15px;
   color: var(--accent);
   background: var(--bg-input);
-  padding: 8px 10px;
+  padding: 10px 12px;
   border-radius: 3px;
   border: 1px solid var(--border);
   word-break: break-all;
@@ -272,13 +312,166 @@ input[type="number"] { -moz-appearance: textfield; }
 @media (max-width: 760px) {
   .la-grid { grid-template-columns: 1fr 1fr; }
 }
+@media (max-width: 420px) {
+  .la-grid { grid-template-columns: 1fr; }
+}
+
+/* ----------------------------------------------------- online users strip */
+
+.online-users {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 20px;
+  background: var(--bg-elev);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+  min-height: 36px;
+}
+.online-label {
+  color: var(--text-mute);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 11px;
+  font-weight: 600;
+}
+.online-pills {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-height: 24px;
+}
+.online-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  font-size: 13px;
+}
+.online-pill .pill-call {
+  color: var(--accent);
+  font-weight: 600;
+  font-family: "IBM Plex Mono", monospace;
+  letter-spacing: 0.02em;
+}
+.online-pill .pill-name {
+  color: var(--text-dim);
+}
+.online-empty {
+  color: var(--text-mute);
+  font-size: 13px;
+  font-style: italic;
+}
+
+/* ----------------------------------------------------- direction picker */
+
+.direction-fieldset {
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 10px 14px 12px;
+  margin: 0 0 16px;
+}
+.direction-fieldset legend {
+  font-size: 12px;
+  color: var(--text-mute);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 0 6px;
+}
+.direction-options {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+.direction-options label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 15px;
+  padding: 4px 0;
+  min-height: 36px;
+}
+.direction-options input[type="radio"] {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* ----------------------------------------------------- big countdown */
+
+.la-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.la-title {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.la-timestamp-inline {
+  font-family: "IBM Plex Mono", monospace;
+  color: var(--text-mute);
+  font-size: 13px;
+}
+.big-countdown {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+.big-countdown:empty {
+  display: none;
+}
+.big-cd-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 14px;
+  background: rgba(239, 111, 58, 0.10);
+  border: 1px solid rgba(239, 111, 58, 0.40);
+  border-radius: 4px;
+  animation: pulse-strong 1.4s ease-in-out infinite;
+}
+.big-cd-label {
+  font-size: 11px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--busy);
+  font-weight: 600;
+}
+.big-cd-time {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--busy);
+  font-variant-numeric: tabular-nums;
+}
+@keyframes pulse-strong {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+@media (max-width: 480px) {
+  .big-cd-time { font-size: 24px; }
+}
+
+/* The per-device countdown is still in the panel, but we de-emphasize it
+   now that the big countdown is the main attention-grabber. */
+.state-countdown { font-weight: 500; opacity: 0.85; }
 
 /* ----------------------------------------------------- footer */
 
 .footerbar {
   display: flex;
   align-items: center;
-  padding: 8px 20px;
+  padding: 10px 20px;
   border-top: 1px solid var(--border);
   background: var(--bg-elev);
   font-size: 12px;
@@ -286,7 +479,7 @@ input[type="number"] { -moz-appearance: textfield; }
 }
 .footer-spacer { flex: 1; }
 .conn-status {
-  padding: 2px 8px;
+  padding: 4px 10px;
   border-radius: 2px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -305,6 +498,7 @@ input[type="number"] { -moz-appearance: textfield; }
   align-items: center;
   justify-content: center;
   z-index: 100;
+  padding: 16px;
 }
 .modal-backdrop.hidden { display: none; }
 .modal {
@@ -312,22 +506,22 @@ input[type="number"] { -moz-appearance: textfield; }
   border: 1px solid var(--border-strong);
   border-radius: 4px;
   padding: 22px;
-  width: min(420px, 90vw);
+  width: min(460px, 100%);
   box-shadow: 0 10px 30px rgba(0,0,0,0.6);
 }
 .modal h2 {
   margin: 0 0 8px;
-  font-size: 14px;
+  font-size: 15px;
   text-transform: uppercase;
   letter-spacing: 0.12em;
   color: var(--accent);
 }
-.modal-help { color: var(--text-dim); font-size: 13px; margin-top: 0; margin-bottom: 16px; }
+.modal-help { color: var(--text-dim); font-size: 14px; margin-top: 0; margin-bottom: 18px; }
 .modal label {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  margin-bottom: 12px;
+  gap: 6px;
+  margin-bottom: 14px;
   font-size: 12px;
   color: var(--text-mute);
   text-transform: uppercase;
@@ -338,8 +532,9 @@ input[type="number"] { -moz-appearance: textfield; }
   border: 1px solid var(--border-strong);
   border-radius: 3px;
   color: var(--text);
-  font-size: 15px;
-  padding: 9px 11px;
+  font-size: 18px;             /* >16px to prevent iOS auto-zoom on focus */
+  padding: 12px 14px;
+  min-height: var(--tap-min);
   outline: none;
   font-family: inherit;
   text-transform: none;
@@ -348,6 +543,9 @@ input[type="number"] { -moz-appearance: textfield; }
 .modal input:focus { border-color: var(--accent); }
 .modal-error {
   color: var(--err);
-  font-size: 13px;
+  font-size: 14px;
   margin: 4px 0 12px;
+}
+.modal .btn-primary {
+  width: 100%;
 }

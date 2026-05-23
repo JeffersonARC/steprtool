@@ -4,16 +4,19 @@ from __future__ import annotations
 
 import logging
 import logging.handlers
+import threading
+from datetime import datetime, timezone
 from pathlib import Path
 
-from flask import Flask
-from flask_socketio import SocketIO
+from flask import Flask, request
+from flask_socketio import SocketIO, emit
 
 from .config import Config
 from .devices.dcu2 import Dcu2Controller
 from .devices.step100 import Step100Controller
 from .routes.api import api as api_blueprint
 from .routes.pages import pages as pages_blueprint
+from .udp_listener import UdpListener
 
 
 LOG_DIR = Path("logs")
@@ -25,7 +28,6 @@ def _setup_logging() -> None:
     root = logging.getLogger()
     root.setLevel(logging.INFO)
 
-    # Avoid double handlers if this is called twice (e.g. during reload).
     if any(isinstance(h, logging.handlers.RotatingFileHandler) for h in root.handlers):
         return
 
@@ -53,14 +55,8 @@ def create_app(config: Config) -> tuple[Flask, SocketIO]:
         static_folder="static",
         template_folder="templates",
     )
-    # Flask wants a secret key even though we don't use sessions in v1.
     app.config["SECRET_KEY"] = "steprtool-not-used-for-auth"
 
-    # Socket.IO. CORS is wide-open because we serve everything from the
-    # same origin and this lives on a Tailscale-only network. The 'threading'
-    # async mode uses plain Python threads (no eventlet/gevent). WebSocket
-    # support is provided by the simple-websocket package; if absent we
-    # automatically fall back to HTTP long-polling.
     socketio = SocketIO(
         app,
         cors_allowed_origins="*",
@@ -69,47 +65,116 @@ def create_app(config: Config) -> tuple[Flask, SocketIO]:
         engineio_logger=False,
     )
 
-    # Build the device controllers and stash them in app.config so the
-    # routes can find them via current_app.
-    step100 = Step100Controller(config.step100, socketio)
+    # Build device controllers and stash for the route layer.
+    step100 = Step100Controller(
+        config.step100, socketio,
+        freq_change_tens_of_hz=config.udp.freq_change_tens_of_hz,
+    )
     dcu2 = Dcu2Controller(config.dcu2, socketio)
     app.config["STEP100"] = step100
     app.config["DCU2"] = dcu2
     app.config["LAST_ACTION"] = None
 
+    # ---- Online users tracking ----
+    # Keyed by Socket.IO session id. Each value:
+    #   {"name": str, "callsign": str, "ip": str, "connected_at": ISO8601 str}
+    # IP is retained server-side but never broadcast.
+    online_users: dict[str, dict] = {}
+    online_users_lock = threading.Lock()
+    app.config["ONLINE_USERS"] = online_users
+
+    def online_users_public() -> list[dict]:
+        """De-duplicated list (by callsign) shipped to the UI."""
+        with online_users_lock:
+            unique: dict[str, str] = {}
+            for info in online_users.values():
+                cs = info.get("callsign") or ""
+                if cs:
+                    unique[cs] = info.get("name", "")
+        return [{"callsign": c, "name": n} for c, n in sorted(unique.items())]
+
+    def broadcast_online_users() -> None:
+        socketio.emit("online_users", online_users_public())
+
     # Keep a server-side copy of the most recent last-action so new clients
-    # can catch up on connect. We hook the SocketIO server's outgoing 'last_action'
-    # event by wrapping the controllers' broadcast method.
-    _orig_broadcast = step100._broadcast_last_action
+    # can catch up on connect.
+    _orig_broadcast_step100 = step100._broadcast_last_action
     def _wrapped_step100(last):
         app.config["LAST_ACTION"] = last.to_dict()
-        _orig_broadcast(last)
+        _orig_broadcast_step100(last)
     step100._broadcast_last_action = _wrapped_step100  # type: ignore[assignment]
 
-    _orig_broadcast2 = dcu2._broadcast_last_action
+    _orig_broadcast_dcu2 = dcu2._broadcast_last_action
     def _wrapped_dcu2(last):
         app.config["LAST_ACTION"] = last.to_dict()
-        _orig_broadcast2(last)
+        _orig_broadcast_dcu2(last)
     dcu2._broadcast_last_action = _wrapped_dcu2  # type: ignore[assignment]
 
     app.register_blueprint(pages_blueprint)
     app.register_blueprint(api_blueprint)
 
+    # ---- Socket.IO handlers ----
+
     @socketio.on("connect")
     def _on_connect():
-        # Push the current state to the new client.
-        from flask_socketio import emit
+        sid = request.sid  # type: ignore[attr-defined]
+        ip = request.remote_addr or "unknown"
+        with online_users_lock:
+            online_users[sid] = {
+                "name": "", "callsign": "", "ip": ip,
+                "connected_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            }
+        # Send current state to the new client.
         emit("state", {
             "step100": step100.state(),
             "dcu2": dcu2.state(),
             "last_action": app.config.get("LAST_ACTION"),
+            "online_users": online_users_public(),
         })
 
+    @socketio.on("identify")
+    def _on_identify(data):
+        if not isinstance(data, dict):
+            return
+        sid = request.sid  # type: ignore[attr-defined]
+        name = (data.get("name") or "").strip()
+        callsign = (data.get("callsign") or "").strip().upper()
+        with online_users_lock:
+            info = online_users.get(sid)
+            if info is not None:
+                info["name"] = name
+                info["callsign"] = callsign
+                logger_label = f"{callsign} {name}".strip() or "(unidentified)"
+                logging.getLogger(__name__).info(
+                    "identify sid=%s ip=%s as %s",
+                    sid, info.get("ip"), logger_label,
+                )
+        broadcast_online_users()
+
+    @socketio.on("disconnect")
+    def _on_disconnect():
+        sid = request.sid  # type: ignore[attr-defined]
+        with online_users_lock:
+            online_users.pop(sid, None)
+        broadcast_online_users()
+
+    # ---- UDP listener ----
+    listener = UdpListener(
+        host=config.udp.bind_host,
+        ports=config.udp.ports,
+        step100_controller=step100,
+    )
+    listener.start()
+    app.config["UDP_LISTENER"] = listener
+
     log.info(
-        "Configuration: Step 100 port=%s wait=%ds direction=%s | DCU-2 port=%s wait=%ds",
+        "Configuration: Step 100 port=%s wait=%ds direction=%s | "
+        "DCU-2 port=%s wait=%ds | UDP %s:%s freq_change=%d",
         config.step100.serial.port, config.step100.wait_seconds,
         config.step100.direction,
         config.dcu2.serial.port, config.dcu2.wait_seconds,
+        config.udp.bind_host, config.udp.ports,
+        config.udp.freq_change_tens_of_hz,
     )
 
     return app, socketio

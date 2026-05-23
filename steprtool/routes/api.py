@@ -11,6 +11,7 @@ import re
 
 from flask import Blueprint, current_app, jsonify, request
 
+from ..config import STEP100_DIRECTION_MAP
 from ..devices.base import DeviceBusy, Operator
 
 
@@ -37,6 +38,18 @@ def _extract_operator(payload: dict) -> Operator:
             "operator.callsign must be 3-10 letters/digits (no punctuation)"
         )
     return Operator(name=name, callsign=callsign)
+
+
+def _extract_direction(payload: dict) -> str:
+    """Pull and validate the Step 100 direction from the request body."""
+    direction = (payload.get("direction") or "").strip().lower()
+    if not direction:
+        raise ValueError("direction is required")
+    if direction not in STEP100_DIRECTION_MAP:
+        raise ValueError(
+            f"direction must be one of {list(STEP100_DIRECTION_MAP)}"
+        )
+    return direction
 
 
 def _step100():
@@ -73,11 +86,12 @@ def step100_frequency():
             freq_khz = int(freq_khz_raw)
         except (TypeError, ValueError):
             return jsonify({"error": "frequency_khz must be an integer"}), 400
+        direction = _extract_direction(payload)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
     try:
-        result = _step100().change_frequency(freq_khz, operator)
+        result = _step100().change_frequency(freq_khz, direction, operator)
     except DeviceBusy as e:
         return jsonify({
             "error": "device busy",
@@ -101,10 +115,20 @@ def step100_home():
     payload = request.get_json(silent=True) or {}
     try:
         operator = _extract_operator(payload)
+        direction = _extract_direction(payload)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
-    result = _step100().home(operator)
+    try:
+        result = _step100().home(direction, operator)
+    except DeviceBusy as e:
+        return jsonify({
+            "error": "device busy",
+            "seconds_remaining": e.seconds_remaining,
+        }), 409
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
     return jsonify({
         "device": "step100",
         "action": result.action,
@@ -120,10 +144,19 @@ def step100_calibrate():
     payload = request.get_json(silent=True) or {}
     try:
         operator = _extract_operator(payload)
+        direction = _extract_direction(payload)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
-    result = _step100().calibrate(operator)
+    try:
+        result = _step100().calibrate(direction, operator)
+    except DeviceBusy as e:
+        return jsonify({
+            "error": "device busy",
+            "seconds_remaining": e.seconds_remaining,
+        }), 409
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
     return jsonify({
         "device": "step100",
         "action": result.action,

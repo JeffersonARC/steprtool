@@ -74,6 +74,7 @@ class Dcu2Controller(DeviceController):
             status=status,
             operator=operator.label(),
             timestamp=now_iso(),
+            inputs={"dcu2_az": azimuth},
         )
         logger.info(
             "[%s] dcu2.change_direction %s | bytes %s | status=%s",

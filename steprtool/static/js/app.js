@@ -16,6 +16,8 @@ const els = {
   opDisplay:   $("op-display"),
   opChange:    $("op-change"),
 
+  onlinePills: $("online-pills"),
+
   step100Freq: $("step100-freq"),
   step100Freq_btn: $("btn-step100-freq"),
   step100Home_btn: $("btn-step100-home"),
@@ -39,11 +41,12 @@ const els = {
   laStatus:    $("la-status"),
   laDetail:    $("la-detail"),
   laBytes:     $("la-bytes"),
+  bigCountdown:$("big-countdown"),
 
   connStatus:  $("conn-status"),
 };
 
-/* ----------------------------------------------------------- operator */
+/* -------------------------------------------------- operator (localStorage) */
 
 function getOperator() {
   try {
@@ -58,11 +61,8 @@ function getOperator() {
 function setOperator(op) {
   localStorage.setItem(OPERATOR_STORAGE_KEY, JSON.stringify(op));
   renderOperator();
-}
-
-function clearOperator() {
-  localStorage.removeItem(OPERATOR_STORAGE_KEY);
-  renderOperator();
+  // Tell the server immediately so the online-users list updates.
+  if (socket && socket.connected) socket.emit("identify", op);
 }
 
 function renderOperator() {
@@ -102,19 +102,46 @@ els.opSave.addEventListener("click", () => {
 
 els.opChange.addEventListener("click", showOperatorModal);
 
-/* ----------------------------------------------------------- helpers */
+/* ------------------------------------------------------- direction helpers */
 
-function setDeviceState(device, busy, mock, secondsRemaining) {
+function getSelectedDirection() {
+  const checked = document.querySelector('input[name="step100-direction"]:checked');
+  return checked ? checked.value : "normal";
+}
+
+function setSelectedDirection(val) {
+  const radio = document.querySelector(
+    `input[name="step100-direction"][value="${val}"]`
+  );
+  if (radio) radio.checked = true;
+}
+
+/* ----------------------------------------------------------- device state */
+
+const deviceState = {
+  step100: { busy: false, mock: false, port: "—", seconds_remaining: 0, seconds_total: 0 },
+  dcu2:    { busy: false, mock: false, port: "—", seconds_remaining: 0, seconds_total: 0 },
+};
+
+function formatMMSS(seconds) {
+  seconds = Math.max(0, Math.floor(seconds));
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+function renderDeviceRow(device) {
+  const d = deviceState[device];
   const dot  = device === "step100" ? els.step100Dot  : els.dcu2Dot;
   const text = device === "step100" ? els.step100Text : els.dcu2Text;
   const cd   = device === "step100" ? els.step100Cd   : els.dcu2Cd;
 
   dot.classList.remove("busy", "mock");
-  if (busy) {
+  if (d.busy) {
     dot.classList.add("busy");
     text.textContent = "busy";
-    cd.textContent = secondsRemaining > 0 ? `${secondsRemaining}s` : "";
-  } else if (mock) {
+    cd.textContent = d.seconds_remaining > 0 ? `${d.seconds_remaining}s` : "";
+  } else if (d.mock) {
     dot.classList.add("mock");
     text.textContent = "idle (mock)";
     cd.textContent = "";
@@ -122,36 +149,59 @@ function setDeviceState(device, busy, mock, secondsRemaining) {
     text.textContent = "idle";
     cd.textContent = "";
   }
-  // Disable/enable command buttons based on device busy state.
-  const busyMap = {
-    step100: busy,
-    dcu2:    busy,
-  };
-  els.step100Freq_btn.disabled = busyMap.step100;
-  els.step100Home_btn.disabled = busyMap.step100;
-  els.step100Cal_btn.disabled  = busyMap.step100;
-  els.dcu2Go.disabled = busyMap.dcu2;
+  // Disable buttons of the busy device.
+  if (device === "step100") {
+    els.step100Freq_btn.disabled = d.busy;
+    els.step100Home_btn.disabled = d.busy;
+    els.step100Cal_btn.disabled  = d.busy;
+  } else {
+    els.dcu2Go.disabled = d.busy;
+  }
 }
 
-// Per-device tracking so countdown emits from the server animate cleanly.
-const deviceState = {
-  step100: { busy: false, mock: false, port: "—" },
-  dcu2:    { busy: false, mock: false, port: "—" },
-};
+function renderBigCountdown() {
+  const items = [];
+  for (const dev of ["step100", "dcu2"]) {
+    const d = deviceState[dev];
+    if (!d.busy || d.seconds_remaining <= 0) continue;
+    const label = dev === "step100" ? "STEP 100" : "DCU-2";
+    items.push(`
+      <div class="big-cd-item">
+        <span class="big-cd-label">${label}</span>
+        <span class="big-cd-time">${formatMMSS(d.seconds_remaining)}</span>
+      </div>
+    `);
+  }
+  els.bigCountdown.innerHTML = items.join("");
+}
 
 function applyDeviceSnapshot(snap) {
   const d = deviceState[snap.device];
-  d.busy = snap.busy;
-  d.mock = snap.mock;
+  d.busy = !!snap.busy;
+  d.mock = !!snap.mock;
   d.port = snap.port;
+  d.seconds_remaining = snap.seconds_remaining || 0;
+  d.seconds_total = snap.seconds_total || 0;
   const portLabel = snap.mock ? "MOCK" : snap.port;
   if (snap.device === "step100") {
     els.step100Port.textContent = `port ${portLabel}`;
+    // Sync direction radio if server included it (state push, not last_action)
+    if (snap.direction) setSelectedDirection(snap.direction);
   } else {
     els.dcu2Port.textContent = `port ${portLabel}`;
   }
-  setDeviceState(snap.device, snap.busy, snap.mock, snap.seconds_remaining || 0);
+  renderDeviceRow(snap.device);
+  renderBigCountdown();
 }
+
+/* -------------------------------------------------- inputs sync via socket */
+
+// Each handler updates a UI element from a structured value the server sent.
+const INPUT_HANDLERS = {
+  step100_freq:      (v) => { els.step100Freq.value = v; },
+  dcu2_az:           (v) => { els.dcu2Az.value = v; },
+  step100_direction: (v) => { setSelectedDirection(v); },
+};
 
 function applyLastAction(la) {
   if (!la) return;
@@ -169,9 +219,38 @@ function applyLastAction(la) {
   else if (s === "MOCK") els.laStatus.classList.add("status-mock");
   else if (s === "NOT IMPLEMENTED") els.laStatus.classList.add("status-noimp");
   else if (s === "ERROR") els.laStatus.classList.add("status-err");
+
+  // Sync inputs from server (so all browsers reflect the committed values).
+  const inputs = la.inputs || {};
+  for (const key in inputs) {
+    const handler = INPUT_HANDLERS[key];
+    if (handler) handler(inputs[key]);
+  }
 }
 
-/* ----------------------------------------------------------- socket.io */
+/* --------------------------------------------------------- online users */
+
+function renderOnlineUsers(list) {
+  if (!Array.isArray(list) || list.length === 0) {
+    els.onlinePills.innerHTML = '<span class="online-empty">no one online yet</span>';
+    return;
+  }
+  els.onlinePills.innerHTML = list.map((u) => {
+    const call = String(u.callsign || "").trim();
+    const name = String(u.name || "").trim();
+    return `<span class="online-pill"><span class="pill-call">${escapeHtml(call)}</span>` +
+           (name ? `<span class="pill-name">${escapeHtml(name)}</span>` : "") +
+           `</span>`;
+  }).join("");
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[c]));
+}
+
+/* ------------------------------------------------------------- socket.io */
 
 const socket = io({ transports: ["websocket", "polling"] });
 
@@ -179,7 +258,11 @@ socket.on("connect", () => {
   els.connStatus.textContent = "connected";
   els.connStatus.classList.remove("conn-down");
   els.connStatus.classList.add("conn-up");
+  // Identify ourselves to the server so we appear in the online-users list.
+  const op = getOperator();
+  if (op) socket.emit("identify", op);
 });
+
 socket.on("disconnect", () => {
   els.connStatus.textContent = "disconnected";
   els.connStatus.classList.remove("conn-up");
@@ -190,18 +273,31 @@ socket.on("state", (s) => {
   applyDeviceSnapshot(s.step100);
   applyDeviceSnapshot(s.dcu2);
   if (s.last_action) applyLastAction(s.last_action);
+  if (s.online_users) renderOnlineUsers(s.online_users);
 });
 
-socket.on("device_locked", ({ device, seconds_remaining }) => {
-  deviceState[device].busy = true;
-  setDeviceState(device, true, deviceState[device].mock, seconds_remaining);
+socket.on("online_users", (list) => renderOnlineUsers(list));
+
+socket.on("device_locked", ({ device, seconds_remaining, seconds_total }) => {
+  const d = deviceState[device];
+  d.busy = true;
+  d.seconds_remaining = seconds_remaining;
+  d.seconds_total = seconds_total;
+  renderDeviceRow(device);
+  renderBigCountdown();
 });
 socket.on("device_countdown", ({ device, seconds_remaining }) => {
-  setDeviceState(device, true, deviceState[device].mock, seconds_remaining);
+  const d = deviceState[device];
+  d.seconds_remaining = seconds_remaining;
+  renderDeviceRow(device);
+  renderBigCountdown();
 });
 socket.on("device_unlocked", ({ device }) => {
-  deviceState[device].busy = false;
-  setDeviceState(device, false, deviceState[device].mock, 0);
+  const d = deviceState[device];
+  d.busy = false;
+  d.seconds_remaining = 0;
+  renderDeviceRow(device);
+  renderBigCountdown();
 });
 socket.on("last_action", (la) => applyLastAction(la));
 
@@ -230,6 +326,7 @@ function showErrorAsLastAction(device, action, message) {
     status: "ERROR",
     detail: message,
     bytes_hex: "",
+    inputs: {},
   });
 }
 
@@ -243,13 +340,15 @@ els.step100Freq_btn.addEventListener("click", async () => {
     return;
   }
   try {
-    const { ok, status, data } = await postJSON("/api/step100/frequency", { frequency_khz: freq_khz });
+    const { ok, status, data } = await postJSON("/api/step100/frequency", {
+      frequency_khz: freq_khz,
+      direction: getSelectedDirection(),
+    });
     if (!ok) {
       const msg = data.error || `HTTP ${status}`;
       const extra = data.seconds_remaining ? ` (${data.seconds_remaining}s remaining)` : "";
       showErrorAsLastAction("step100", "Change Frequency", msg + extra);
     }
-    // success: server broadcasts last_action via SocketIO, no need to update here
   } catch (e) {
     showErrorAsLastAction("step100", "Change Frequency", e.message || String(e));
   }
@@ -258,16 +357,26 @@ els.step100Freq_btn.addEventListener("click", async () => {
 /* Step 100: Home */
 els.step100Home_btn.addEventListener("click", async () => {
   try {
-    const { ok, status, data } = await postJSON("/api/step100/home", {});
-    if (!ok) showErrorAsLastAction("step100", "Home", data.error || `HTTP ${status}`);
+    const { ok, status, data } = await postJSON("/api/step100/home", {
+      direction: getSelectedDirection(),
+    });
+    if (!ok) {
+      const extra = data.seconds_remaining ? ` (${data.seconds_remaining}s remaining)` : "";
+      showErrorAsLastAction("step100", "Home", (data.error || `HTTP ${status}`) + extra);
+    }
   } catch (e) { showErrorAsLastAction("step100", "Home", e.message || String(e)); }
 });
 
 /* Step 100: Calibrate */
 els.step100Cal_btn.addEventListener("click", async () => {
   try {
-    const { ok, status, data } = await postJSON("/api/step100/calibrate", {});
-    if (!ok) showErrorAsLastAction("step100", "Calibrate", data.error || `HTTP ${status}`);
+    const { ok, status, data } = await postJSON("/api/step100/calibrate", {
+      direction: getSelectedDirection(),
+    });
+    if (!ok) {
+      const extra = data.seconds_remaining ? ` (${data.seconds_remaining}s remaining)` : "";
+      showErrorAsLastAction("step100", "Calibrate", (data.error || `HTTP ${status}`) + extra);
+    }
   } catch (e) { showErrorAsLastAction("step100", "Calibrate", e.message || String(e)); }
 });
 
@@ -301,4 +410,5 @@ els.dcu2Go.addEventListener("click", async () => {
 /* ----------------------------------------------------------- bootstrap */
 
 renderOperator();
-// Initial state will arrive via the 'state' SocketIO event on connect.
+renderOnlineUsers([]);
+// Initial state arrives via the 'state' Socket.IO event on connect.

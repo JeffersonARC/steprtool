@@ -14,8 +14,7 @@ from dotenv import load_dotenv
 # Direction names -> byte 7 value in the Step 100 command frame.
 STEP100_DIRECTION_MAP = {
     "normal": 0x00,
-    "180": 0x40,
-    "bidirectional": 0x80,
+    "180": 0x40
 }
 
 # pyserial constants come from the package; we mirror the accepted strings
@@ -45,7 +44,7 @@ class SerialConfig:
 class Step100Config:
     serial: SerialConfig
     wait_seconds: int
-    direction: str       # "normal" | "180" | "bidirectional"
+    direction: str       # "normal" | "180" 
 
     @property
     def direction_byte(self) -> int:
@@ -56,6 +55,14 @@ class Step100Config:
 class Dcu2Config:
     serial: SerialConfig
     wait_seconds: int
+
+
+@dataclass
+class UdpConfig:
+    """N1MM UDP listener settings."""
+    ports: list[int]
+    bind_host: str
+    freq_change_tens_of_hz: int
 
 
 @dataclass
@@ -71,6 +78,7 @@ class Config:
     web: WebConfig
     step100: Step100Config
     dcu2: Dcu2Config
+    udp: UdpConfig
 
 
 class ConfigError(Exception):
@@ -146,7 +154,7 @@ def load_config(env_path: Path | None = None) -> Config:
 
     web = WebConfig(
         host=_env("WEB_HOST", "0.0.0.0"),
-        port=_env_int("WEB_PORT", 8443),
+        port=_env_int("WEB_PORT", 6300),
         cert_file=Path(_env("CERT_FILE", "certs/cert.pem")),
         key_file=Path(_env("KEY_FILE", "certs/key.pem")),
     )
@@ -166,7 +174,28 @@ def load_config(env_path: Path | None = None) -> Config:
 
     dcu2 = Dcu2Config(
         serial=_load_serial("DCU2"),
-        wait_seconds=_env_int("DCU2_WAIT_SECONDS", 10),
+        wait_seconds=_env_int("DCU2_WAIT_SECONDS", 60),
+    )
+
+    udp_ports_raw = _env("UDP_PORTS", "12060,13063,13065")
+    try:
+        udp_ports = [int(p.strip()) for p in udp_ports_raw.split(",") if p.strip()]
+    except ValueError as e:
+        raise ConfigError(
+            f"UDP_PORTS must be a comma-separated list of integers (got {udp_ports_raw!r})"
+        ) from e
+    for p in udp_ports:
+        if p < 1 or p > 65535:
+            raise ConfigError(f"UDP port {p} out of range")
+
+    freq_change = _env_int("FREQ_CHANGE", 100)
+    if freq_change < 1:
+        raise ConfigError("FREQ_CHANGE must be >= 1 (tens-of-Hz)")
+
+    udp = UdpConfig(
+        ports=udp_ports,
+        bind_host=_env("UDP_BIND_HOST", "127.0.0.1").strip(),
+        freq_change_tens_of_hz=freq_change,
     )
 
     if step100.wait_seconds < 0:
@@ -174,4 +203,4 @@ def load_config(env_path: Path | None = None) -> Config:
     if dcu2.wait_seconds < 0:
         raise ConfigError("DCU2_WAIT_SECONDS must be >= 0")
 
-    return Config(web=web, step100=step100, dcu2=dcu2)
+    return Config(web=web, step100=step100, dcu2=dcu2, udp=udp)
