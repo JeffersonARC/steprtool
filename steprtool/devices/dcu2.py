@@ -1,22 +1,18 @@
 """DCU-2 (hy-gain) rotator controller.
 
-Wire protocol (from the hy-gain DCU-1/DCU-2 manual; both share the same
-command set):
+Wire protocol: 4800,N,8,1 ASCII (per device manual).
+  AP1xxx;  set target bearing (xxx = 000..359, 3 digits)
+  AM1;     start rotation
+  ;        reset / clear previous command
 
-  Serial: 4800,N,8,1 ASCII.
-  Command "AP1xxx;"  -- set target bearing, xxx is 3 ASCII digits 000..359
-  Command "AM1;"     -- start rotation to the target bearing
-  Command ";"        -- reset / clear previous command
-
-We send "AP1xxx;AM1;" as one combined write. The controller is fire-and-forget
-(no bearing reported back), so success status is reported as soon as the
-write completes; the wait timer covers the worst-case rotation time.
+We send "AP1xxx;AM1;" combined. The controller does not report bearing back,
+so we cannot tell when motion finishes; the wait timer covers the worst-case
+rotation time.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 from ..config import Dcu2Config
 from .base import (
@@ -30,16 +26,13 @@ from .step100 import CommandResult
 
 
 logger = logging.getLogger(__name__)
+user_logger = logging.getLogger("steprtool.user_activity")
 
 
 class Dcu2Controller(DeviceController):
-    """DCU-2 rotator controller."""
-
     def __init__(self, cfg: Dcu2Config, socketio):
         super().__init__("dcu2", cfg.serial, cfg.wait_seconds, socketio)
         self.cfg = cfg
-
-    # -------------------------------------------------- frame construction
 
     @staticmethod
     def _validate_azimuth(azimuth: int) -> None:
@@ -49,11 +42,8 @@ class Dcu2Controller(DeviceController):
             raise ValueError("azimuth must be between 0 and 359")
 
     def build_azimuth_command(self, azimuth: int) -> bytes:
-        """Return the ASCII bytes for 'set bearing and rotate'."""
         self._validate_azimuth(azimuth)
         return f"AP1{azimuth:03d};AM1;".encode("ascii")
-
-    # -------------------------------------------------------------- actions
 
     def change_direction(self, azimuth: int, operator: Operator) -> CommandResult:
         self._try_acquire()
@@ -76,7 +66,7 @@ class Dcu2Controller(DeviceController):
             timestamp=now_iso(),
             inputs={"dcu2_az": azimuth},
         )
-        logger.info(
+        user_logger.info(
             "[%s] dcu2.change_direction %s | bytes %s | status=%s",
             operator.label(), detail, hex_str, status,
         )

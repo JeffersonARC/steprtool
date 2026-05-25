@@ -17,6 +17,7 @@ from flask import Blueprint, current_app, render_template, request, redirect, ur
 
 
 logger = logging.getLogger(__name__)
+user_logger = logging.getLogger("steprtool.user_activity")
 
 pages = Blueprint("pages", __name__)
 
@@ -49,7 +50,7 @@ def index():
             operator=callsign,
         )
         if applied:
-            logger.info(
+            user_logger.info(
                 "URL override: antennas=%s by %s from %s",
                 antennas, callsign, request.remote_addr,
             )

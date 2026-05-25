@@ -51,6 +51,7 @@ from .base import (
 
 
 logger = logging.getLogger(__name__)
+user_logger = logging.getLogger("steprtool.user_activity")
 
 
 # Limits for the on-wire 24-bit field, expressed in kHz.
@@ -203,7 +204,7 @@ class Step100Controller(DeviceController):
             timestamp=now_iso(),
             inputs=self._inputs_dict(freq_khz, direction),
         )
-        logger.info(
+        user_logger.info(
             "[%s] step100.change_frequency %s | bytes %s | status=%s",
             operator.label(), detail, hex_str, status,
         )
@@ -248,7 +249,7 @@ class Step100Controller(DeviceController):
             timestamp=now_iso(),
             inputs=self._inputs_dict(None, direction),
         )
-        logger.info(
+        user_logger.info(
             "[%s] step100.home | bytes %s | status=%s",
             operator.label(), hex_str, status,
         )
@@ -290,7 +291,7 @@ class Step100Controller(DeviceController):
             timestamp=now_iso(),
             inputs=self._inputs_dict(None, direction),
         )
-        logger.info(
+        user_logger.info(
             "[%s] step100.calibrate | bytes %s | status=%s",
             operator.label(), hex_str, status,
         )

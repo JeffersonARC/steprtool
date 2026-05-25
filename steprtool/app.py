@@ -23,6 +23,7 @@ from .udp_listener import UdpListener
 
 LOG_DIR = Path("logs")
 LOG_FILE = LOG_DIR / "steprtool.log"
+USER_ACTIVITY_LOG_FILE = LOG_DIR / "user_activity.log"
 
 
 def _setup_logging() -> None:
@@ -33,6 +34,7 @@ def _setup_logging() -> None:
     if any(isinstance(h, logging.handlers.RotatingFileHandler) for h in root.handlers):
         return
 
+    # ---- Main log: software-oriented events (HTTP, IMAP, UDP, errors, etc.)
     fmt = logging.Formatter(
         "%(asctime)s %(levelname)-5s %(name)s: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
@@ -47,10 +49,32 @@ def _setup_logging() -> None:
     console.setFormatter(fmt)
     root.addHandler(console)
 
+    # ---- User-activity log: who did what, in its own file.
+    # propagate=False so these lines don't ALSO end up in steprtool.log.
+    # Simpler format (no logger name) since the file is single-purpose.
+    activity_fmt = logging.Formatter(
+        "%(asctime)s %(levelname)-5s %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    activity_handler = logging.handlers.RotatingFileHandler(
+        USER_ACTIVITY_LOG_FILE, maxBytes=2_000_000, backupCount=5, encoding="utf-8",
+    )
+    activity_handler.setFormatter(activity_fmt)
+
+    activity_console = logging.StreamHandler()
+    activity_console.setFormatter(activity_fmt)
+
+    activity_logger = logging.getLogger("steprtool.user_activity")
+    activity_logger.setLevel(logging.INFO)
+    activity_logger.propagate = False
+    activity_logger.addHandler(activity_handler)
+    activity_logger.addHandler(activity_console)
+
 
 def create_app(config: Config) -> tuple[Flask, SocketIO]:
     _setup_logging()
     log = logging.getLogger(__name__)
+    user_log = logging.getLogger("steprtool.user_activity")
 
     app = Flask(__name__, static_folder="static", template_folder="templates")
     app.config["SECRET_KEY"] = "steprtool-not-used-for-auth"
@@ -141,8 +165,8 @@ def create_app(config: Config) -> tuple[Flask, SocketIO]:
             if info is not None:
                 info["name"] = name
                 info["callsign"] = callsign
-                log.info("identify sid=%s ip=%s as %s %s",
-                         sid, info.get("ip"), callsign, name)
+                user_log.info("identify sid=%s ip=%s as %s %s",
+                              sid, info.get("ip"), callsign, name)
         broadcast_online_users()
 
     @socketio.on("disconnect")

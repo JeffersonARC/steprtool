@@ -31,6 +31,7 @@ from typing import Optional
 
 
 logger = logging.getLogger(__name__)
+user_logger = logging.getLogger("steprtool.user_activity")
 
 
 VALID_STATUSES = ("connected", "disconnected")
@@ -114,7 +115,7 @@ class AntennaState:
             }
 
         if old_status != status:
-            logger.info(
+            user_logger.info(
                 "antenna state %s -> %s (source=%s, operator=%s, at=%s)",
                 old_status, status, source, operator or "-",
                 snap["timestamp"],
