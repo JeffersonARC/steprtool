@@ -100,6 +100,7 @@ def create_app(config: Config) -> tuple[Flask, SocketIO]:
     app.config["STEP100"] = step100
     app.config["DCU2"] = dcu2
     app.config["LAST_ACTION"] = None
+    app.config["IC7300_URL"] = config.ic7300_url
 
     # Online users.
     online_users: dict[str, dict] = {}

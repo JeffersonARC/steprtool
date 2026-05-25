@@ -92,6 +92,7 @@ class Config:
     dcu2: Dcu2Config
     udp: UdpConfig
     email: EmailConfig
+    ic7300_url: str = ""
 
 
 class ConfigError(Exception):
@@ -238,4 +239,7 @@ def load_config(env_path: Path | None = None) -> Config:
     if dcu2.wait_seconds < 0:
         raise ConfigError("DCU2_WAIT_SECONDS must be >= 0")
 
-    return Config(web=web, step100=step100, dcu2=dcu2, udp=udp, email=email)
+    return Config(
+        web=web, step100=step100, dcu2=dcu2, udp=udp, email=email,
+        ic7300_url=_env("IC7300_URL", "").strip(),
+    )

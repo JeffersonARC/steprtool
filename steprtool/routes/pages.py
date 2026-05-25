@@ -62,7 +62,10 @@ def index():
         # Redirect to clean URL to prevent re-application on refresh.
         return redirect(url_for("pages.index"), code=303)
 
-    return render_template("index.html")
+    return render_template(
+        "index.html",
+        ic7300_url=current_app.config.get("IC7300_URL", ""),
+    )
 
 
 def _override_error(message: str, code: int):
