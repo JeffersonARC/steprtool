@@ -110,6 +110,45 @@ function formatLocalTimestamp(isoString) {
   } catch (_) { return d.toString(); }
 }
 
+/* Antenna-state notification dispatch.
+   Tracks the last status we've seen so we only fire on real transitions
+   (not on initial page-load state). The Notification 'tag' lets the OS
+   replace any earlier antenna notification rather than stacking them. */
+let _lastAntennaStatus = null;
+
+function maybeFireAntennaNotification(snap) {
+  if (typeof Notification === "undefined") return;
+  if (Notification.permission !== "granted") return;
+  // No transition: same status as last time. Update tracker and bail.
+  if (snap.status === _lastAntennaStatus) {
+    _lastAntennaStatus = snap.status;
+    return;
+  }
+  // First observation since page load: just record it, don't fire — the
+  // user already sees the banner on the page itself.
+  if (_lastAntennaStatus === null) {
+    _lastAntennaStatus = snap.status;
+    return;
+  }
+  // Real transition. Fire.
+  _lastAntennaStatus = snap.status;
+  const title = snap.status === "disconnected"
+    ? "⚠ Antennas Disconnected"
+    : "✓ Antennas Reconnected";
+  const when = formatLocalTimestamp(snap.timestamp);
+  let body = `As of ${when}`;
+  if (snap.source === "override" && snap.operator) {
+    body += ` (manual override by ${snap.operator})`;
+  }
+  try {
+    new Notification(title, {
+      body: body,
+      tag: "steprtool-antenna",   // dedupe replacement, not stack
+      renotify: true,             // re-alert if a previous one was dismissed
+    });
+  } catch (_) { /* some browsers throw if permission lapses */ }
+}
+
 function applyAntennaState(snap) {
   if (!snap) return;
   const disconnected = snap.status === "disconnected";
@@ -132,6 +171,7 @@ function applyAntennaState(snap) {
     if (commonEls.mainGrid) commonEls.mainGrid.classList.remove("locked");
     document.body.classList.remove("antennas-disconnected");
   }
+  maybeFireAntennaNotification(snap);
 }
 
 /* ----------------------------------------------------- socket.io */

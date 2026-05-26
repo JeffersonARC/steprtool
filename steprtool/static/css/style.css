@@ -125,6 +125,56 @@ html, body {
 .online-pill .pill-name { color: var(--text-dim); }
 .online-empty { color: var(--text-mute); font-size: 13px; font-style: italic; }
 
+/* ----------------------------------------------------- notification banner */
+
+.notification-banner {
+  background: rgba(95, 196, 109, 0.08);
+  border: 1px solid rgba(95, 196, 109, 0.35);
+  border-radius: 4px;
+  margin: 0 0 18px;
+  padding: 12px 14px;
+}
+.nb-inner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.nb-icon { font-size: 20px; flex: 0 0 auto; }
+.nb-text {
+  flex: 1 1 240px;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.4;
+}
+.nb-enable {
+  font: inherit; font-size: 14px;
+  padding: 8px 16px;
+  min-height: 38px;
+  background: var(--ok);
+  color: #0a1a0c;
+  border: 1px solid var(--ok);
+  border-radius: 3px;
+  font-weight: 600;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+@media (hover: hover) {
+  .nb-enable:hover { background: #7adb88; border-color: #7adb88; }
+}
+.nb-dismiss {
+  font: inherit; font-size: 22px; line-height: 1;
+  padding: 0 8px;
+  background: none;
+  color: var(--text-mute);
+  border: none;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+@media (hover: hover) {
+  .nb-dismiss:hover { color: var(--accent); }
+}
+
 /* ----------------------------------------------------- home page: hero + tiles */
 
 .home-main {

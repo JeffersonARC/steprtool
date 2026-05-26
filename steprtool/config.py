@@ -95,6 +95,7 @@ class Config:
     email: EmailConfig
     ic7300_url: str = ""
     calendar_url: str = ""
+    chat_url: str = ""
 
 
 class ConfigError(Exception):
@@ -252,4 +253,5 @@ def load_config(env_path: Path | None = None) -> Config:
         web=web, step100=step100, dcu2=dcu2, udp=udp, email=email,
         ic7300_url=_env("IC7300_URL", "").strip(),
         calendar_url=_env("CALENDAR_URL", "").strip(),
+        chat_url=_env("CHAT_URL", "").strip(),
     )

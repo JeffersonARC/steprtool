@@ -5,11 +5,19 @@
 <main class="home-main" id="main-grid">
 
   <section class="home-intro">
-    <h1 class="home-h1">Welcome to the Jefferson ARC remote shack</h1>
-    <p class="home-lede">Choose what you'd like to do.</p>
+    <!-- Edit this section to add your own introduction text. -->
   </section>
 
   <section class="home-tiles">
+    {% if chat_url %}
+    <a href="{{ chat_url }}" target="_blank" rel="noopener"
+       class="home-tile" data-tile="chat">
+      <div class="tile-icon" aria-hidden="true">💬</div>
+      <div class="tile-label">Chat</div>
+      <div class="tile-sub">Talk with other operators (new tab)</div>
+    </a>
+    {% endif %}
+
     {% if calendar_url %}
     <a href="{{ calendar_url }}" target="_blank" rel="noopener"
        class="home-tile" data-tile="calendar">

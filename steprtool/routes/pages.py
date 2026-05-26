@@ -72,6 +72,7 @@ def home():
         "home.html",
         ic7300_url=current_app.config.get("IC7300_URL", ""),
         calendar_url=current_app.config.get("CALENDAR_URL", ""),
+        chat_url=current_app.config.get("CHAT_URL", ""),
         activity_events=activity_snapshot,
     )
 

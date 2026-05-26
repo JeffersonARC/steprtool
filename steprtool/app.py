@@ -116,6 +116,7 @@ def create_app(config: Config) -> tuple[Flask, SocketIO]:
     app.config["CONNECTION_TRACKER"] = tracker
     app.config["IC7300_URL"] = config.ic7300_url
     app.config["CALENDAR_URL"] = config.calendar_url
+    app.config["CHAT_URL"] = config.chat_url
 
     # Keep server-side LAST_ACTION for newcomers.
     _orig_step100 = step100._broadcast_last_action
@@ -171,7 +172,9 @@ def create_app(config: Config) -> tuple[Flask, SocketIO]:
         if not isinstance(data, dict):
             return
         target = data.get("target")
-        if target not in ("ic7300", "calendar"):
+        labels = {"ic7300": "IC-7300", "calendar": "the calendar", "chat": "the chat"}
+        label = labels.get(target)
+        if label is None:
             return
         sid = request.sid  # type: ignore[attr-defined]
         info = None
@@ -182,7 +185,6 @@ def create_app(config: Config) -> tuple[Flask, SocketIO]:
                 break
         if not info:
             return
-        label = "IC-7300" if target == "ic7300" else "the calendar"
         activity.record(f"{info['name']} {info['callsign']} visited {label}")
 
     # ---- UDP listener ----
@@ -221,7 +223,7 @@ def create_app(config: Config) -> tuple[Flask, SocketIO]:
     log.info(
         "Configuration: Step 100 port=%s wait=%ds direction=%s | "
         "DCU-2 port=%s wait=%ds | UDP %s:%s freq_change=%d | "
-        "IC7300=%s | Calendar=%s",
+        "IC7300=%s | Calendar=%s | Chat=%s",
         config.step100.serial.port, config.step100.wait_seconds,
         config.step100.direction,
         config.dcu2.serial.port, config.dcu2.wait_seconds,
@@ -229,6 +231,7 @@ def create_app(config: Config) -> tuple[Flask, SocketIO]:
         config.udp.freq_change_tens_of_hz,
         config.ic7300_url or "(blank)",
         config.calendar_url or "(blank)",
+        config.chat_url or "(blank)",
     )
 
     return app, socketio
