@@ -1,10 +1,10 @@
-"""Page routes: just the index template, plus the antennas-override
-query-parameter handler.
+"""Page routes:
+  GET /            -> home.html      (with three choice tiles + activity feed)
+  GET /steprtool   -> steprtool.html (the device controls)
 
-The override is applied on the GET to "/" when the URL has
-?antennas=connected (or disconnected) &callsign=KJ5BYZ. After applying,
-we redirect to "/" (clean URL) so a browser refresh doesn't keep
-re-applying the same override.
+Either route can also accept ?antennas=connected|disconnected&callsign=XXX
+to apply a manual override; after applying we redirect back to the same
+clean URL.
 """
 
 from __future__ import annotations
@@ -17,7 +17,6 @@ from flask import Blueprint, current_app, render_template, request, redirect, ur
 
 
 logger = logging.getLogger(__name__)
-user_logger = logging.getLogger("steprtool.user_activity")
 
 pages = Blueprint("pages", __name__)
 
@@ -26,50 +25,66 @@ _CALLSIGN_RE = re.compile(r"^[A-Z0-9]{3,10}$")
 _VALID_ANTENNA = ("connected", "disconnected")
 
 
-@pages.get("/")
-def index():
+def _maybe_apply_override(endpoint_name: str):
+    """If ?antennas=... is present, apply it (with callsign attribution)
+    and return a redirect response. Otherwise return None."""
     antennas = (request.args.get("antennas") or "").strip().lower()
-    if antennas:
-        # Override path.
-        callsign = (request.args.get("callsign") or "").strip().upper()
-        if antennas not in _VALID_ANTENNA:
-            return _override_error(f"'antennas' must be one of {_VALID_ANTENNA}", 400)
-        if not callsign:
-            return _override_error("'callsign' query parameter is required for override", 400)
-        if not _CALLSIGN_RE.match(callsign):
-            return _override_error("'callsign' must be 3-10 letters/digits", 400)
+    if not antennas:
+        return None
 
-        state = current_app.config.get("ANTENNA_STATE")
-        if state is None:
-            return _override_error("antenna state not initialized", 500)
+    callsign = (request.args.get("callsign") or "").strip().upper()
+    if antennas not in _VALID_ANTENNA:
+        return _override_error(f"'antennas' must be one of {_VALID_ANTENNA}", 400)
+    if not callsign:
+        return _override_error("'callsign' query parameter is required for override", 400)
+    if not _CALLSIGN_RE.match(callsign):
+        return _override_error("'callsign' must be 3-10 letters/digits", 400)
 
-        applied = state.update(
-            status=antennas,
-            timestamp=datetime.now(timezone.utc),
-            source="override",
-            operator=callsign,
+    state = current_app.config.get("ANTENNA_STATE")
+    if state is None:
+        return _override_error("antenna state not initialized", 500)
+
+    applied = state.update(
+        status=antennas,
+        timestamp=datetime.now(timezone.utc),
+        source="override",
+        operator=callsign,
+    )
+    if not applied:
+        logger.info(
+            "URL override: antennas=%s by %s rejected (stale vs current state)",
+            antennas, callsign,
         )
-        if applied:
-            user_logger.info(
-                "URL override: antennas=%s by %s from %s",
-                antennas, callsign, request.remote_addr,
-            )
-        else:
-            logger.info(
-                "URL override: antennas=%s by %s rejected (stale vs current state)",
-                antennas, callsign,
-            )
-        # Redirect to clean URL to prevent re-application on refresh.
-        return redirect(url_for("pages.index"), code=303)
+    # Redirect to the clean URL of whichever page they came in on.
+    return redirect(url_for(endpoint_name), code=303)
+
+
+@pages.get("/")
+def home():
+    override = _maybe_apply_override("pages.home")
+    if override is not None:
+        return override
+
+    activity = current_app.config.get("ACTIVITY_FEED")
+    activity_snapshot = activity.snapshot() if activity is not None else []
 
     return render_template(
-        "index.html",
+        "home.html",
         ic7300_url=current_app.config.get("IC7300_URL", ""),
+        calendar_url=current_app.config.get("CALENDAR_URL", ""),
+        activity_events=activity_snapshot,
     )
 
 
+@pages.get("/steprtool")
+def steprtool():
+    override = _maybe_apply_override("pages.steprtool")
+    if override is not None:
+        return override
+    return render_template("steprtool.html")
+
+
 def _override_error(message: str, code: int):
-    """A tiny HTML page explaining what was wrong with the override URL."""
     body = (
         "<!doctype html><meta charset='utf-8'>"
         "<title>steprtool — override error</title>"
@@ -79,6 +94,6 @@ def _override_error(message: str, code: int):
         "a{color:#f0a73a}</style>"
         f"<h1>Override rejected</h1><p>{message}</p>"
         "<p>Example: <code>?antennas=disconnected&amp;callsign=KJ5BYZ</code></p>"
-        f"<p><a href='{url_for('pages.index')}'>Back to steprtool</a></p>"
+        f"<p><a href='{url_for('pages.home')}'>Back to home</a></p>"
     )
     return body, code

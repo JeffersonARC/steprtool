@@ -51,7 +51,6 @@ from .base import (
 
 
 logger = logging.getLogger(__name__)
-user_logger = logging.getLogger("steprtool.user_activity")
 
 
 # Limits for the on-wire 24-bit field, expressed in kHz.
@@ -99,7 +98,8 @@ def _validate_freq_khz(freq_khz: int) -> None:
 class Step100Controller(DeviceController):
     """Builds command frames, writes them out, and broadcasts results."""
 
-    def __init__(self, cfg: Step100Config, socketio, freq_change_tens_of_hz: int):
+    def __init__(self, cfg: Step100Config, socketio, freq_change_tens_of_hz: int,
+                 activity_feed=None):
         super().__init__("step100", cfg.serial, cfg.wait_seconds, socketio)
         self.cfg = cfg
 
@@ -119,6 +119,10 @@ class Step100Controller(DeviceController):
         # "disconnected", auto-retune is suppressed. (Manual commands are
         # blocked at the route layer; this guard is for the UDP path.)
         self.antenna_state = None
+
+        # Activity feed records friendly user-facing events. Optional so
+        # legacy tests/scripts can instantiate without one.
+        self.activity = activity_feed
 
     # ----------------------------------------------------- frame construction
 
@@ -204,10 +208,13 @@ class Step100Controller(DeviceController):
             timestamp=now_iso(),
             inputs=self._inputs_dict(freq_khz, direction),
         )
-        user_logger.info(
-            "[%s] step100.change_frequency %s | bytes %s | status=%s",
-            operator.label(), detail, hex_str, status,
+        user_message = (
+            f"N1MM auto-tuned to {freq_khz} kHz"
+            if operator.callsign == "N1MMAUTO"
+            else f"{operator.name} {operator.callsign} set frequency to {freq_khz} kHz"
         )
+        if self.activity is not None:
+            self.activity.record(user_message)
         self._broadcast_last_action(last)
         self._start_wait_timer()
         return CommandResult(
@@ -249,10 +256,10 @@ class Step100Controller(DeviceController):
             timestamp=now_iso(),
             inputs=self._inputs_dict(None, direction),
         )
-        user_logger.info(
-            "[%s] step100.home | bytes %s | status=%s",
-            operator.label(), hex_str, status,
-        )
+        if self.activity is not None:
+            self.activity.record(
+                f"{operator.name} {operator.callsign} homed the antenna"
+            )
         self._broadcast_last_action(last)
         self._start_wait_timer()
         return CommandResult(
@@ -291,10 +298,10 @@ class Step100Controller(DeviceController):
             timestamp=now_iso(),
             inputs=self._inputs_dict(None, direction),
         )
-        user_logger.info(
-            "[%s] step100.calibrate | bytes %s | status=%s",
-            operator.label(), hex_str, status,
-        )
+        if self.activity is not None:
+            self.activity.record(
+                f"{operator.name} {operator.callsign} calibrated the antenna"
+            )
         self._broadcast_last_action(last)
         self._start_wait_timer()
         return CommandResult(

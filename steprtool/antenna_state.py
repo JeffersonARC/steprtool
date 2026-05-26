@@ -31,7 +31,6 @@ from typing import Optional
 
 
 logger = logging.getLogger(__name__)
-user_logger = logging.getLogger("steprtool.user_activity")
 
 
 VALID_STATUSES = ("connected", "disconnected")
@@ -45,7 +44,8 @@ def _utc_iso(ts: datetime) -> str:
 
 
 class AntennaState:
-    def __init__(self, socketio, *, default_status: str = "connected"):
+    def __init__(self, socketio, *, default_status: str = "connected",
+                 activity_feed=None):
         if default_status not in VALID_STATUSES:
             raise ValueError(f"default_status must be one of {VALID_STATUSES}")
         self._lock = threading.Lock()
@@ -54,6 +54,7 @@ class AntennaState:
         self._source: str = "default"
         self._operator: Optional[str] = None
         self._socketio = socketio
+        self._activity = activity_feed
 
     # ----------------------------------------------------------------- query
 
@@ -115,11 +116,23 @@ class AntennaState:
             }
 
         if old_status != status:
-            user_logger.info(
-                "antenna state %s -> %s (source=%s, operator=%s, at=%s)",
-                old_status, status, source, operator or "-",
-                snap["timestamp"],
-            )
+            # Friendly message for activity feed and user_activity.log:
+            #   "Antennas Disconnected" / "Antennas Reconnected" for emails,
+            #   plus operator attribution for URL overrides.
+            if status == "disconnected":
+                friendly = "Antennas Disconnected"
+            else:
+                friendly = "Antennas Reconnected"
+            if source == "override" and operator:
+                friendly = f"{friendly} (manually by {operator})"
+            if self._activity is not None:
+                self._activity.record(friendly)
+            else:
+                logger.info(
+                    "antenna state %s -> %s (source=%s, operator=%s, at=%s)",
+                    old_status, status, source, operator or "-",
+                    snap["timestamp"],
+                )
         else:
             logger.debug(
                 "antenna state refresh: %s unchanged (source %s -> %s, at=%s)",

@@ -26,13 +26,13 @@ from .step100 import CommandResult
 
 
 logger = logging.getLogger(__name__)
-user_logger = logging.getLogger("steprtool.user_activity")
 
 
 class Dcu2Controller(DeviceController):
-    def __init__(self, cfg: Dcu2Config, socketio):
+    def __init__(self, cfg: Dcu2Config, socketio, activity_feed=None):
         super().__init__("dcu2", cfg.serial, cfg.wait_seconds, socketio)
         self.cfg = cfg
+        self.activity = activity_feed
 
     @staticmethod
     def _validate_azimuth(azimuth: int) -> None:
@@ -66,10 +66,10 @@ class Dcu2Controller(DeviceController):
             timestamp=now_iso(),
             inputs={"dcu2_az": azimuth},
         )
-        user_logger.info(
-            "[%s] dcu2.change_direction %s | bytes %s | status=%s",
-            operator.label(), detail, hex_str, status,
-        )
+        if self.activity is not None:
+            self.activity.record(
+                f"{operator.name} {operator.callsign} set azimuth to {azimuth}\u00b0"
+            )
         self._broadcast_last_action(last)
         self._start_wait_timer()
         return CommandResult(

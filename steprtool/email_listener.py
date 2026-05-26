@@ -103,6 +103,22 @@ def parse_body_timestamp(text: str) -> Optional[datetime]:
     return dt.astimezone(timezone.utc)
 
 
+def _sender_addresses(msg) -> list[str]:
+    """Return all email addresses (lowercase) from From: and Reply-To:."""
+    from email.utils import getaddresses
+    headers = []
+    for hdr in ("From", "Reply-To"):
+        val = msg.get(hdr)
+        if val:
+            headers.append(val)
+    addresses = []
+    for name, addr in getaddresses(headers):
+        a = (addr or "").strip().lower()
+        if a:
+            addresses.append(a)
+    return addresses
+
+
 def _get_message_text(msg) -> str:
     """Extract a concatenation of subject + plain-text body for matching."""
     parts: list[str] = []
@@ -175,6 +191,7 @@ class EmailListener:
         poll_seconds: int,
         walkback_days: int,
         antenna_state,
+        allowed_senders: Optional[list[str]] = None,
     ):
         self.host = host
         self.port = port
@@ -186,6 +203,8 @@ class EmailListener:
         self.poll_seconds = poll_seconds
         self.walkback_days = walkback_days
         self.antenna_state = antenna_state
+        # Lowercase set for O(1) match; empty = allow all.
+        self.allowed_senders = {s.strip().lower() for s in (allowed_senders or []) if s.strip()}
 
         self._processed_uids: set[bytes] = set()
         self._stop = threading.Event()
@@ -241,6 +260,20 @@ class EmailListener:
             try:
                 raw = msg_data[0][1] if isinstance(msg_data[0], tuple) else msg_data[0]
                 msg = email.message_from_bytes(raw)
+
+                # Sender allowlist check (if configured).
+                if self.allowed_senders:
+                    addrs = _sender_addresses(msg)
+                    if not any(a in self.allowed_senders for a in addrs):
+                        # Sender not on the allowlist; mark UID handled
+                        # so we don't keep re-evaluating.
+                        logger.debug(
+                            "UID %r skipped: senders %s not in allowlist",
+                            uid, addrs,
+                        )
+                        self._processed_uids.add(uid)
+                        continue
+
                 body_text = _get_message_text(msg)
                 status = parse_phrase_status(body_text)
                 if status is None:
@@ -274,6 +307,18 @@ class EmailListener:
     def _initial_walkback(self) -> None:
         logger.info("IMAP walkback: looking back %d days on %s:%d as %s",
                     self.walkback_days, self.host, self.port, self.username)
+
+        # Reset baseline so historical emails can override it. AntennaState's
+        # update() rejects events older than its current timestamp; since
+        # __init__ sets that to "now", every walkback email would look stale.
+        # We reset to epoch + disconnected: the most-recent matching email
+        # wins the chronological race, and we land on a safe default if
+        # walkback finds nothing.
+        epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
+        self.antenna_state.replace_default(
+            "disconnected", source="default", timestamp=epoch,
+        )
+
         M = self._connect()
         try:
             typ, _ = M.select("INBOX", readonly=True)
@@ -282,16 +327,22 @@ class EmailListener:
             uids = self._search_since(M, self.walkback_days)
             logger.info("walkback: %d candidate message(s) in window", len(uids))
             # Sort lexicographically -> numerically ascending UID, which on
-            # Gmail equals chronological. update() drops stale events, so the
-            # most recent matching message wins.
+            # Gmail equals chronological. The most recent matching email wins.
             for uid in sorted(uids, key=lambda b: int(b)):
                 self._fetch_and_handle(M, [uid])
-            # If nothing matched, the antenna_state placeholder ("connected"
-            # from __init__) is wrong per our safety policy. Flip default.
+
             snap = self.antenna_state.snapshot()
-            if snap["source"] == "default" and snap["status"] == "connected":
-                logger.info("walkback: no matching emails found; defaulting to disconnected")
-                self.antenna_state.replace_default("disconnected", source="default")
+            if snap["source"] == "default":
+                logger.info(
+                    "walkback: no matching emails found in %d-day window; "
+                    "staying at safe default (disconnected)",
+                    self.walkback_days,
+                )
+            else:
+                logger.info(
+                    "walkback complete: antenna %s (from email at %s)",
+                    snap["status"], snap["timestamp"],
+                )
         finally:
             try: M.close()
             except Exception: pass

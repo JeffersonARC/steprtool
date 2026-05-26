@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block page_id %}steprtool{% endblock %}
+
+{% block topbar_extras %}
+<a href="{{ url_for('pages.home') }}" class="link-btn home-link">← Home</a>
+{% endblock %}
+
+{% block content %}
+<main class="grid" id="main-grid">
+
+  <!-- Step 100 panel -->
+  <section class="panel" data-device="step100">
+    <div class="panel-head">
+      <h2>Step 100</h2>
+      <div class="panel-port" id="step100-port">port —</div>
+    </div>
+
+    <fieldset class="direction-fieldset">
+      <legend>Direction</legend>
+      <div class="direction-options">
+        <label><input type="radio" name="step100-direction" value="normal" checked> <span>Normal</span></label>
+        <label><input type="radio" name="step100-direction" value="180"> <span>180°</span></label>
+      </div>
+    </fieldset>
+
+    <label class="field">
+      <span>Frequency (kHz)</span>
+      <input type="number" id="step100-freq" min="1" max="167772" step="1" inputmode="numeric">
+    </label>
+
+    <div class="button-row">
+      <button type="button" id="btn-step100-freq" class="btn-primary">Change Frequency</button>
+      <button type="button" id="btn-step100-home" class="btn-secondary">Home</button>
+      <button type="button" id="btn-step100-cal" class="btn-secondary">Calibrate</button>
+    </div>
+
+    <div class="device-state" id="step100-state">
+      <span class="state-dot" id="step100-dot"></span>
+      <span class="state-text" id="step100-text">idle</span>
+      <span class="state-countdown" id="step100-countdown"></span>
+    </div>
+  </section>
+
+  <!-- DCU-2 panel -->
+  <section class="panel" data-device="dcu2">
+    <div class="panel-head">
+      <h2>DCU-2 Rotator</h2>
+      <div class="panel-port" id="dcu2-port">port —</div>
+    </div>
+
+    <label class="field">
+      <span>Azimuth (0–359°)</span>
+      <input type="number" id="dcu2-az" min="0" max="359" step="1" inputmode="numeric">
+    </label>
+
+    <div class="compass">
+      <button type="button" class="compass-btn" data-az="0">N</button>
+      <button type="button" class="compass-btn" data-az="45">NE</button>
+      <button type="button" class="compass-btn" data-az="90">E</button>
+      <button type="button" class="compass-btn" data-az="135">SE</button>
+      <button type="button" class="compass-btn" data-az="180">S</button>
+      <button type="button" class="compass-btn" data-az="225">SW</button>
+      <button type="button" class="compass-btn" data-az="270">W</button>
+      <button type="button" class="compass-btn" data-az="315">NW</button>
+    </div>
+
+    <div class="button-row">
+      <button type="button" id="btn-dcu2-go" class="btn-primary">Change Direction</button>
+    </div>
+
+    <div class="device-state" id="dcu2-state">
+      <span class="state-dot" id="dcu2-dot"></span>
+      <span class="state-text" id="dcu2-text">idle</span>
+      <span class="state-countdown" id="dcu2-countdown"></span>
+    </div>
+  </section>
+
+  <!-- Last Action panel -->
+  <section class="panel panel-wide" id="last-action-panel">
+    <div class="panel-head la-head">
+      <div class="la-title">
+        <h2>Last Action</h2>
+        <span class="la-timestamp-inline" id="la-timestamp">—</span>
+      </div>
+      <div class="big-countdown" id="big-countdown" aria-live="polite"></div>
+    </div>
+    <div class="la-grid">
+      <div class="la-cell"><span class="la-label">Device</span><span id="la-device">—</span></div>
+      <div class="la-cell"><span class="la-label">Action</span><span id="la-action">—</span></div>
+      <div class="la-cell"><span class="la-label">Operator</span><span id="la-operator">—</span></div>
+      <div class="la-cell"><span class="la-label">Status</span><span id="la-status">—</span></div>
+      <div class="la-cell la-full"><span class="la-label">Detail</span><span id="la-detail">—</span></div>
+      <div class="la-cell la-full"><span class="la-label">Bytes</span><span class="hex" id="la-bytes">—</span></div>
+    </div>
+  </section>
+
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/steprtool.js') }}"></script>
+{% endblock %}

@@ -4,15 +4,16 @@ from __future__ import annotations
 
 import logging
 import logging.handlers
-import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
 from flask import Flask, request
 from flask_socketio import SocketIO, emit
 
+from .activity import ActivityFeed
 from .antenna_state import AntennaState
 from .config import Config
+from .connection_tracker import ConnectionTracker
 from .devices.dcu2 import Dcu2Controller
 from .devices.step100 import Step100Controller
 from .email_listener import EmailListener
@@ -34,7 +35,6 @@ def _setup_logging() -> None:
     if any(isinstance(h, logging.handlers.RotatingFileHandler) for h in root.handlers):
         return
 
-    # ---- Main log: software-oriented events (HTTP, IMAP, UDP, errors, etc.)
     fmt = logging.Formatter(
         "%(asctime)s %(levelname)-5s %(name)s: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
@@ -49,9 +49,7 @@ def _setup_logging() -> None:
     console.setFormatter(fmt)
     root.addHandler(console)
 
-    # ---- User-activity log: who did what, in its own file.
-    # propagate=False so these lines don't ALSO end up in steprtool.log.
-    # Simpler format (no logger name) since the file is single-purpose.
+    # User-activity log: own file, simpler format, doesn't propagate.
     activity_fmt = logging.Formatter(
         "%(asctime)s %(levelname)-5s %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
@@ -74,7 +72,6 @@ def _setup_logging() -> None:
 def create_app(config: Config) -> tuple[Flask, SocketIO]:
     _setup_logging()
     log = logging.getLogger(__name__)
-    user_log = logging.getLogger("steprtool.user_activity")
 
     app = Flask(__name__, static_folder="static", template_folder="templates")
     app.config["SECRET_KEY"] = "steprtool-not-used-for-auth"
@@ -84,42 +81,43 @@ def create_app(config: Config) -> tuple[Flask, SocketIO]:
         logger=False, engineio_logger=False,
     )
 
+    # Activity feed (recent events + broadcast + log). Seed from existing
+    # user_activity.log so the home page shows history after a restart.
+    activity = ActivityFeed(socketio)
+    seeded = activity.seed_from_log(USER_ACTIVITY_LOG_FILE)
+    if seeded:
+        log.info("Activity feed seeded with %d recent event(s) from %s",
+                 seeded, USER_ACTIVITY_LOG_FILE)
+
+    # Connection tracker (debounced join/left).
+    tracker = ConnectionTracker(activity_feed=activity)
+
     # Antenna state. Default to 'connected' so dev/testing without email
     # is usable; the email listener (if enabled) will overwrite this with
     # walkback truth, or flip to 'disconnected' if walkback finds nothing.
-    antenna_state = AntennaState(socketio, default_status="connected")
-    app.config["ANTENNA_STATE"] = antenna_state
+    antenna_state = AntennaState(
+        socketio, default_status="connected", activity_feed=activity,
+    )
 
     # Device controllers.
     step100 = Step100Controller(
         config.step100, socketio,
         freq_change_tens_of_hz=config.udp.freq_change_tens_of_hz,
+        activity_feed=activity,
     )
-    step100.antenna_state = antenna_state          # for auto-retune gating
-    dcu2 = Dcu2Controller(config.dcu2, socketio)
+    step100.antenna_state = antenna_state
+    dcu2 = Dcu2Controller(config.dcu2, socketio, activity_feed=activity)
+
     app.config["STEP100"] = step100
     app.config["DCU2"] = dcu2
     app.config["LAST_ACTION"] = None
+    app.config["ANTENNA_STATE"] = antenna_state
+    app.config["ACTIVITY_FEED"] = activity
+    app.config["CONNECTION_TRACKER"] = tracker
     app.config["IC7300_URL"] = config.ic7300_url
+    app.config["CALENDAR_URL"] = config.calendar_url
 
-    # Online users.
-    online_users: dict[str, dict] = {}
-    online_users_lock = threading.Lock()
-    app.config["ONLINE_USERS"] = online_users
-
-    def online_users_public() -> list[dict]:
-        with online_users_lock:
-            unique: dict[str, str] = {}
-            for info in online_users.values():
-                cs = info.get("callsign") or ""
-                if cs:
-                    unique[cs] = info.get("name", "")
-        return [{"callsign": c, "name": n} for c, n in sorted(unique.items())]
-
-    def broadcast_online_users() -> None:
-        socketio.emit("online_users", online_users_public())
-
-    # Wrap controllers' broadcast so we keep a server-side LAST_ACTION copy.
+    # Keep server-side LAST_ACTION for newcomers.
     _orig_step100 = step100._broadcast_last_action
     def _wrapped_step100(last):
         app.config["LAST_ACTION"] = last.to_dict()
@@ -140,18 +138,13 @@ def create_app(config: Config) -> tuple[Flask, SocketIO]:
     @socketio.on("connect")
     def _on_connect():
         sid = request.sid  # type: ignore[attr-defined]
-        ip = request.remote_addr or "unknown"
-        with online_users_lock:
-            online_users[sid] = {
-                "name": "", "callsign": "", "ip": ip,
-                "connected_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            }
         emit("state", {
             "step100": step100.state(),
             "dcu2": dcu2.state(),
             "last_action": app.config.get("LAST_ACTION"),
-            "online_users": online_users_public(),
+            "online_users": tracker.public_users(),
             "antenna_state": antenna_state.snapshot(),
+            "activity_events": activity.snapshot(),
         })
 
     @socketio.on("identify")
@@ -161,21 +154,36 @@ def create_app(config: Config) -> tuple[Flask, SocketIO]:
         sid = request.sid  # type: ignore[attr-defined]
         name = (data.get("name") or "").strip()
         callsign = (data.get("callsign") or "").strip().upper()
-        with online_users_lock:
-            info = online_users.get(sid)
-            if info is not None:
-                info["name"] = name
-                info["callsign"] = callsign
-                user_log.info("identify sid=%s ip=%s as %s %s",
-                              sid, info.get("ip"), callsign, name)
-        broadcast_online_users()
+        if not name or not callsign:
+            return
+        tracker.on_identify(sid, name, callsign)
+        socketio.emit("online_users", tracker.public_users())
 
     @socketio.on("disconnect")
     def _on_disconnect():
         sid = request.sid  # type: ignore[attr-defined]
-        with online_users_lock:
-            online_users.pop(sid, None)
-        broadcast_online_users()
+        tracker.on_disconnect(sid)
+        socketio.emit("online_users", tracker.public_users())
+
+    @socketio.on("activity_visit")
+    def _on_activity_visit(data):
+        """Client tells server it's about to leave for an external page."""
+        if not isinstance(data, dict):
+            return
+        target = data.get("target")
+        if target not in ("ic7300", "calendar"):
+            return
+        sid = request.sid  # type: ignore[attr-defined]
+        info = None
+        # Pull the operator from the tracker so we don't trust the client.
+        for cs, entry in tracker._callsigns.items():  # type: ignore[attr-defined]
+            if sid in entry.get("sids", set()):
+                info = {"callsign": cs, "name": entry.get("name", "")}
+                break
+        if not info:
+            return
+        label = "IC-7300" if target == "ic7300" else "the calendar"
+        activity.record(f"{info['name']} {info['callsign']} visited {label}")
 
     # ---- UDP listener ----
     udp = UdpListener(
@@ -196,26 +204,31 @@ def create_app(config: Config) -> tuple[Flask, SocketIO]:
             poll_seconds=config.email.poll_seconds,
             walkback_days=config.email.walkback_days,
             antenna_state=antenna_state,
+            allowed_senders=config.email.allowed_senders,
         )
         email.start()
         app.config["EMAIL_LISTENER"] = email
         log.info(
-            "Email listener enabled: %s@%s:%d poll=%ds walkback=%dd",
+            "Email listener enabled: %s@%s:%d poll=%ds walkback=%dd "
+            "allowed_senders=%s",
             config.email.username, config.email.imap_host, config.email.imap_port,
             config.email.poll_seconds, config.email.walkback_days,
+            config.email.allowed_senders or "(any)",
         )
     else:
-        log.info("Email listener disabled (EMAIL_ENABLED=false). "
-                 "Antenna state defaults to 'connected'.")
+        log.info("Email listener disabled (EMAIL_ENABLED=false).")
 
     log.info(
         "Configuration: Step 100 port=%s wait=%ds direction=%s | "
-        "DCU-2 port=%s wait=%ds | UDP %s:%s freq_change=%d",
+        "DCU-2 port=%s wait=%ds | UDP %s:%s freq_change=%d | "
+        "IC7300=%s | Calendar=%s",
         config.step100.serial.port, config.step100.wait_seconds,
         config.step100.direction,
         config.dcu2.serial.port, config.dcu2.wait_seconds,
         config.udp.bind_host, config.udp.ports,
         config.udp.freq_change_tens_of_hz,
+        config.ic7300_url or "(blank)",
+        config.calendar_url or "(blank)",
     )
 
     return app, socketio

@@ -75,6 +75,7 @@ class EmailConfig:
     password: str
     poll_seconds: int
     walkback_days: int
+    allowed_senders: list[str]   # lowercase email addresses; empty = allow all
 
 
 @dataclass
@@ -93,6 +94,7 @@ class Config:
     udp: UdpConfig
     email: EmailConfig
     ic7300_url: str = ""
+    calendar_url: str = ""
 
 
 class ConfigError(Exception):
@@ -220,6 +222,12 @@ def load_config(env_path: Path | None = None) -> Config:
             raise ConfigError("EMAIL_USERNAME is required when EMAIL_ENABLED=true")
         if not email_password:
             raise ConfigError("EMAIL_PASSWORD is required when EMAIL_ENABLED=true")
+
+    senders_raw = _env("EMAIL_ALLOWED_SENDERS", "")
+    allowed_senders = [
+        s.strip().lower() for s in senders_raw.split(",") if s.strip()
+    ]
+
     email = EmailConfig(
         enabled=email_enabled,
         imap_host=_env("EMAIL_IMAP_HOST", "imap.gmail.com").strip(),
@@ -228,6 +236,7 @@ def load_config(env_path: Path | None = None) -> Config:
         password=email_password,
         poll_seconds=_env_int("EMAIL_POLL_SECONDS", 10),
         walkback_days=_env_int("EMAIL_WALKBACK_DAYS", 30),
+        allowed_senders=allowed_senders,
     )
     if email.poll_seconds < 2:
         raise ConfigError("EMAIL_POLL_SECONDS must be >= 2")
@@ -242,4 +251,5 @@ def load_config(env_path: Path | None = None) -> Config:
     return Config(
         web=web, step100=step100, dcu2=dcu2, udp=udp, email=email,
         ic7300_url=_env("IC7300_URL", "").strip(),
+        calendar_url=_env("CALENDAR_URL", "").strip(),
     )
