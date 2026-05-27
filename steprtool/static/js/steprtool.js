@@ -1,8 +1,6 @@
 /* steprtool page: device controls. */
 "use strict";
 
-const $ = (id) => document.getElementById(id);
-
 const els = {
   step100Freq: $("step100-freq"),
   step100Freq_btn: $("btn-step100-freq"),
@@ -29,8 +27,6 @@ const els = {
   laBytes:     $("la-bytes"),
   bigCountdown:$("big-countdown"),
 };
-
-const socket = window.socket;
 
 /* ------------------------------------------------------- direction helpers */
 
