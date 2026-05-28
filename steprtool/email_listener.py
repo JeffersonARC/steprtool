@@ -219,6 +219,7 @@ class EmailListener:
         walkback_days: int,
         antenna_state,
         allowed_senders: Optional[list[str]] = None,
+        activity_feed=None,
     ):
         self.host = host
         self.port = port
@@ -230,6 +231,10 @@ class EmailListener:
         self.poll_seconds = poll_seconds
         self.walkback_days = walkback_days
         self.antenna_state = antenna_state
+        self.activity_feed = activity_feed
+        # How many recent matching emails to backfill into the activity feed
+        # on startup.
+        self.backfill_count = 5
         # Lowercase set for O(1) match; empty = allow all.
         self.allowed_senders = {s.strip().lower() for s in (allowed_senders or []) if s.strip()}
 
@@ -271,57 +276,56 @@ class EmailListener:
         M.login(self.username, self.password)
         return M
 
-    def _fetch_and_handle(self, M: imaplib.IMAP4_SSL, uids: list[bytes]) -> None:
-        """Fetch each UID, parse, and apply via antenna_state.update()."""
-        for uid in uids:
-            if uid in self._processed_uids:
-                continue
-            try:
-                typ, msg_data = M.uid("fetch", uid, "(RFC822)")
-            except Exception as e:
-                logger.warning("IMAP UID FETCH %r failed: %s", uid, e)
-                continue
-            if typ != "OK" or not msg_data or msg_data[0] is None:
-                continue
+    def _friendly_message(self, status: str, message_override: Optional[str]) -> str:
+        """Display text for an email event (matches antenna_state wording)."""
+        if message_override:
+            return message_override
+        return "Antennas Disconnected" if status == "disconnected" else "Antennas Reconnected"
 
-            try:
-                raw = msg_data[0][1] if isinstance(msg_data[0], tuple) else msg_data[0]
-                msg = email.message_from_bytes(raw)
+    def _parse_uid(self, M: imaplib.IMAP4_SSL, uid: bytes) -> Optional[dict]:
+        """Fetch and parse one UID. Returns a dict or None.
 
-                # Sender allowlist check (if configured).
-                if self.allowed_senders:
-                    addrs = _sender_addresses(msg)
-                    if not any(a in self.allowed_senders for a in addrs):
-                        # Sender not on the allowlist; mark UID handled
-                        # so we don't keep re-evaluating.
-                        logger.debug(
-                            "UID %r skipped: senders %s not in allowlist",
-                            uid, addrs,
-                        )
-                        self._processed_uids.add(uid)
-                        continue
+        On a matching message returns
+            {"uid", "status", "message_override", "ts"}
+        and marks the UID processed. Non-matching / disallowed-sender
+        messages are also marked processed (so we don't re-evaluate them
+        every poll) and return None. Does NOT touch antenna_state.
+        """
+        if uid in self._processed_uids:
+            return None
+        try:
+            typ, msg_data = M.uid("fetch", uid, "(RFC822)")
+        except Exception as e:
+            logger.warning("IMAP UID FETCH %r failed: %s", uid, e)
+            return None
+        if typ != "OK" or not msg_data or msg_data[0] is None:
+            return None
 
-                body_text = _get_message_text(msg)
-                status, activity_message = parse_phrase_event(body_text)
-                if status is None:
-                    # Not one of ours — still mark UID as processed to avoid
-                    # re-evaluating it every poll.
+        try:
+            raw = msg_data[0][1] if isinstance(msg_data[0], tuple) else msg_data[0]
+            msg = email.message_from_bytes(raw)
+
+            if self.allowed_senders:
+                addrs = _sender_addresses(msg)
+                if not any(a in self.allowed_senders for a in addrs):
+                    logger.debug("UID %r skipped: senders %s not in allowlist", uid, addrs)
                     self._processed_uids.add(uid)
-                    continue
-                ts = _message_timestamp(msg, body_text)
-                self.antenna_state.update(
-                    status=status, timestamp=ts, source="email", operator=None,
-                    activity_message=activity_message,
-                )
+                    return None
+
+            body_text = _get_message_text(msg)
+            status, message_override = parse_phrase_event(body_text)
+            if status is None:
                 self._processed_uids.add(uid)
-                logger.info(
-                    "email UID %s -> antenna %s at %s%s",
-                    uid.decode("ascii", "replace"), status,
-                    ts.isoformat(timespec="seconds"),
-                    " (power-cycle notice)" if activity_message else "",
-                )
-            except Exception as e:
-                logger.warning("IMAP message %r processing failed: %s", uid, e)
+                return None
+            ts = _message_timestamp(msg, body_text)
+            self._processed_uids.add(uid)
+            return {
+                "uid": uid, "status": status,
+                "message_override": message_override, "ts": ts,
+            }
+        except Exception as e:
+            logger.warning("IMAP message %r processing failed: %s", uid, e)
+            return None
 
     def _search_since(self, M: imaplib.IMAP4_SSL, days_ago: int) -> list[bytes]:
         """Return UIDs of messages received in the last `days_ago` days."""
@@ -355,22 +359,48 @@ class EmailListener:
                 raise RuntimeError("IMAP SELECT INBOX failed")
             uids = self._search_since(M, self.walkback_days)
             logger.info("walkback: %d candidate message(s) in window", len(uids))
-            # Sort lexicographically -> numerically ascending UID, which on
-            # Gmail equals chronological. The most recent matching email wins.
-            for uid in sorted(uids, key=lambda b: int(b)):
-                self._fetch_and_handle(M, [uid])
 
-            snap = self.antenna_state.snapshot()
-            if snap["source"] == "default":
+            # Parse every candidate (no state changes yet), collecting the
+            # matching events.
+            events = []
+            for uid in sorted(uids, key=lambda b: int(b)):
+                ev = self._parse_uid(M, uid)
+                if ev is not None:
+                    events.append(ev)
+            events.sort(key=lambda e: e["ts"])
+
+            if events:
+                # Set current state from the most recent matching email —
+                # silently, so we don't replay the whole history into the feed.
+                latest = events[-1]
+                self.antenna_state.update(
+                    status=latest["status"], timestamp=latest["ts"],
+                    source="email", operator=None,
+                    activity_message=latest["message_override"],
+                    record_activity=False,
+                )
+                # Backfill the most recent few into the feed with their real
+                # email timestamps (no log persist, no broadcast — clients
+                # aren't connected yet and the mailbox is the record).
+                backfilled = 0
+                if self.activity_feed is not None:
+                    for ev in events[-self.backfill_count:]:
+                        msg = self._friendly_message(ev["status"], ev["message_override"])
+                        self.activity_feed.record(
+                            msg, timestamp=ev["ts"], persist=False, broadcast=False,
+                        )
+                        backfilled += 1
+                logger.info(
+                    "walkback complete: antenna %s (from email at %s); "
+                    "%d matching email(s), backfilled %d into activity feed",
+                    latest["status"], latest["ts"].isoformat(timespec="seconds"),
+                    len(events), backfilled,
+                )
+            else:
                 logger.info(
                     "walkback: no matching emails found in %d-day window; "
                     "staying at safe default (disconnected)",
                     self.walkback_days,
-                )
-            else:
-                logger.info(
-                    "walkback complete: antenna %s (from email at %s)",
-                    snap["status"], snap["timestamp"],
                 )
         finally:
             try: M.close()
@@ -386,9 +416,23 @@ class EmailListener:
                 raise RuntimeError("IMAP SELECT INBOX failed")
             uids = self._search_since(M, days_ago=1)
             new_uids = [u for u in uids if u not in self._processed_uids]
-            if new_uids:
-                logger.debug("poll: %d new UID(s)", len(new_uids))
-                self._fetch_and_handle(M, sorted(new_uids, key=lambda b: int(b)))
+            for uid in sorted(new_uids, key=lambda b: int(b)):
+                ev = self._parse_uid(M, uid)
+                if ev is None:
+                    continue
+                # Live event: apply state, which records to the feed (with the
+                # email's own timestamp) and broadcasts. persist=False is set
+                # inside antenna_state for email-sourced events.
+                self.antenna_state.update(
+                    status=ev["status"], timestamp=ev["ts"], source="email",
+                    operator=None, activity_message=ev["message_override"],
+                )
+                logger.info(
+                    "email UID %s -> antenna %s at %s%s",
+                    ev["uid"].decode("ascii", "replace"), ev["status"],
+                    ev["ts"].isoformat(timespec="seconds"),
+                    " (power-cycle notice)" if ev["message_override"] else "",
+                )
         finally:
             try: M.close()
             except Exception: pass

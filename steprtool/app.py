@@ -211,6 +211,7 @@ def create_app(config: Config) -> tuple[Flask, SocketIO]:
             walkback_days=config.email.walkback_days,
             antenna_state=antenna_state,
             allowed_senders=config.email.allowed_senders,
+            activity_feed=activity,
         )
         email.start()
         app.config["EMAIL_LISTENER"] = email
@@ -225,7 +226,7 @@ def create_app(config: Config) -> tuple[Flask, SocketIO]:
         log.info("Email listener disabled (EMAIL_ENABLED=false).")
 
     log.info(
-        "Configuration: Step 100 port=%s wait=%ds direction=%s | "
+        "Configuration: SDA 100 port=%s wait=%ds direction=%s | "
         "DCU-2 port=%s wait=%ds | UDP %s:%s freq_change=%d | "
         "IC7300=%s | Calendar=%s | Chat=%s",
         config.sda100.serial.port, config.sda100.wait_seconds,

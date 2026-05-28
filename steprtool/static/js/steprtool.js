@@ -86,7 +86,7 @@ function renderBigCountdown() {
   for (const dev of ["sda100", "dcu2"]) {
     const d = deviceState[dev];
     if (!d.busy || d.seconds_remaining <= 0) continue;
-    const label = dev === "sda100" ? "STEP 100" : "DCU-2";
+    const label = dev === "sda100" ? "SDA 100" : "DCU-2";
     items.push(
       `<div class="big-cd-item">
          <span class="big-cd-label">${label}</span>
