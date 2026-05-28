@@ -11,8 +11,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 
-# Direction names -> byte 7 value in the Step 100 command frame.
-STEP100_DIRECTION_MAP = {
+# Direction names -> byte 7 value in the SDA 100 command frame.
+SDA100_DIRECTION_MAP = {
     "normal": 0x00,
     "180": 0x40
 }
@@ -41,14 +41,14 @@ class SerialConfig:
 
 
 @dataclass
-class Step100Config:
+class SDA100Config:
     serial: SerialConfig
     wait_seconds: int
     direction: str       # "normal" | "180" 
 
     @property
     def direction_byte(self) -> int:
-        return STEP100_DIRECTION_MAP[self.direction]
+        return SDA100_DIRECTION_MAP[self.direction]
 
 
 @dataclass
@@ -89,7 +89,7 @@ class WebConfig:
 @dataclass
 class Config:
     web: WebConfig
-    step100: Step100Config
+    sda100: SDA100Config
     dcu2: Dcu2Config
     udp: UdpConfig
     email: EmailConfig
@@ -176,17 +176,17 @@ def load_config(env_path: Path | None = None) -> Config:
         key_file=Path(_env("KEY_FILE", "certs/key.pem")),
     )
 
-    step100_direction = _env("STEP100_DIRECTION", "normal").strip().lower()
-    if step100_direction not in STEP100_DIRECTION_MAP:
+    sda100_direction = _env("SDA100_DIRECTION", "normal").strip().lower()
+    if sda100_direction not in SDA100_DIRECTION_MAP:
         raise ConfigError(
-            f"STEP100_DIRECTION must be one of {list(STEP100_DIRECTION_MAP)} "
-            f"(got {step100_direction!r})"
+            f"SDA100_DIRECTION must be one of {list(SDA100_DIRECTION_MAP)} "
+            f"(got {sda100_direction!r})"
         )
 
-    step100 = Step100Config(
-        serial=_load_serial("STEP100"),
-        wait_seconds=_env_int("STEP100_WAIT_SECONDS", 10),
-        direction=step100_direction,
+    sda100 = SDA100Config(
+        serial=_load_serial("SDA100"),
+        wait_seconds=_env_int("SDA100_WAIT_SECONDS", 10),
+        direction=sda100_direction,
     )
 
     dcu2 = Dcu2Config(
@@ -244,13 +244,13 @@ def load_config(env_path: Path | None = None) -> Config:
     if email.walkback_days < 1:
         raise ConfigError("EMAIL_WALKBACK_DAYS must be >= 1")
 
-    if step100.wait_seconds < 0:
-        raise ConfigError("STEP100_WAIT_SECONDS must be >= 0")
+    if sda100.wait_seconds < 0:
+        raise ConfigError("SDA100_WAIT_SECONDS must be >= 0")
     if dcu2.wait_seconds < 0:
         raise ConfigError("DCU2_WAIT_SECONDS must be >= 0")
 
     return Config(
-        web=web, step100=step100, dcu2=dcu2, udp=udp, email=email,
+        web=web, sda100=sda100, dcu2=dcu2, udp=udp, email=email,
         ic7300_url=_env("IC7300_URL", "").strip(),
         calendar_url=_env("CALENDAR_URL", "").strip(),
         chat_url=_env("CHAT_URL", "").strip(),

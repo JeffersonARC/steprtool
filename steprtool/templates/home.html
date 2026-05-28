@@ -14,7 +14,7 @@
        class="home-tile" data-tile="chat">
       <div class="tile-icon" aria-hidden="true">💬</div>
       <div class="tile-label">Chat</div>
-      <div class="tile-sub">Talk with other operators (new tab)</div>
+      <div class="tile-sub">Chat with other operators (opens in new tab)</div>
     </a>
     {% endif %}
 
@@ -23,7 +23,7 @@
        class="home-tile" data-tile="calendar">
       <div class="tile-icon" aria-hidden="true">📅</div>
       <div class="tile-label">Sign up for remote operation</div>
-      <div class="tile-sub">Reserve your slot on the calendar</div>
+      <div class="tile-sub">Reserve your slot on the calendar (opens in new tab)</div>
     </a>
     {% endif %}
 
@@ -33,13 +33,13 @@
       <img src="{{ url_for('static', filename='img/ic_7300.png') }}"
            alt="" class="tile-img">
       <div class="tile-label">Use the IC-7300</div>
-      <div class="tile-sub">POTACAT &amp; ECHOCAT control page (new tab)</div>
+      <div class="tile-sub">POTACAT &amp; ECHOCAT control page (opens in new tab)</div>
     </a>
     {% endif %}
 
     <a href="{{ url_for('pages.steprtool') }}"
        class="home-tile" data-tile="steprtool">
-      <img src="{{ url_for('static', filename='img/stepIR.png') }}"
+      <img src="{{ url_for('static', filename='img/stepIR.jpg') }}"
            alt="" class="tile-img">
       <div class="tile-label">Manage the StepIR antenna</div>
       <div class="tile-sub">Frequency, direction, rotator (Flex 6300)</div>

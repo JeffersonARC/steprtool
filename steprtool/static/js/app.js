@@ -20,14 +20,14 @@ const els = {
   antennaAlertText: $("antenna-alert-text"),
   mainGrid:         $("main-grid"),
 
-  step100Freq: $("step100-freq"),
-  step100Freq_btn: $("btn-step100-freq"),
-  step100Home_btn: $("btn-step100-home"),
-  step100Cal_btn:  $("btn-step100-cal"),
-  step100Port: $("step100-port"),
-  step100Dot:  $("step100-dot"),
-  step100Text: $("step100-text"),
-  step100Cd:   $("step100-countdown"),
+  sda100Freq: $("sda100-freq"),
+  sda100Freq_btn: $("btn-sda100-freq"),
+  sda100Home_btn: $("btn-sda100-home"),
+  sda100Cal_btn:  $("btn-sda100-cal"),
+  sda100Port: $("sda100-port"),
+  sda100Dot:  $("sda100-dot"),
+  sda100Text: $("sda100-text"),
+  sda100Cd:   $("sda100-countdown"),
 
   dcu2Az:      $("dcu2-az"),
   dcu2Go:      $("btn-dcu2-go"),
@@ -101,18 +101,18 @@ els.opChange.addEventListener("click", showOperatorModal);
 /* ------------------------------------------------------- direction helpers */
 
 function getSelectedDirection() {
-  const checked = document.querySelector('input[name="step100-direction"]:checked');
+  const checked = document.querySelector('input[name="sda100-direction"]:checked');
   return checked ? checked.value : "normal";
 }
 function setSelectedDirection(val) {
-  const radio = document.querySelector(`input[name="step100-direction"][value="${val}"]`);
+  const radio = document.querySelector(`input[name="sda100-direction"][value="${val}"]`);
   if (radio) radio.checked = true;
 }
 
 /* ----------------------------------------------------------- device state */
 
 const deviceState = {
-  step100: { busy: false, mock: false, port: "—", seconds_remaining: 0, seconds_total: 0 },
+  sda100: { busy: false, mock: false, port: "—", seconds_remaining: 0, seconds_total: 0 },
   dcu2:    { busy: false, mock: false, port: "—", seconds_remaining: 0, seconds_total: 0 },
 };
 
@@ -125,9 +125,9 @@ function formatMMSS(seconds) {
 
 function renderDeviceRow(device) {
   const d = deviceState[device];
-  const dot  = device === "step100" ? els.step100Dot  : els.dcu2Dot;
-  const text = device === "step100" ? els.step100Text : els.dcu2Text;
-  const cd   = device === "step100" ? els.step100Cd   : els.dcu2Cd;
+  const dot  = device === "sda100" ? els.sda100Dot  : els.dcu2Dot;
+  const text = device === "sda100" ? els.sda100Text : els.dcu2Text;
+  const cd   = device === "sda100" ? els.sda100Cd   : els.dcu2Cd;
 
   dot.classList.remove("busy", "mock");
   if (d.busy) {
@@ -142,10 +142,10 @@ function renderDeviceRow(device) {
     text.textContent = "idle";
     cd.textContent = "";
   }
-  if (device === "step100") {
-    els.step100Freq_btn.disabled = d.busy;
-    els.step100Home_btn.disabled = d.busy;
-    els.step100Cal_btn.disabled  = d.busy;
+  if (device === "sda100") {
+    els.sda100Freq_btn.disabled = d.busy;
+    els.sda100Home_btn.disabled = d.busy;
+    els.sda100Cal_btn.disabled  = d.busy;
   } else {
     els.dcu2Go.disabled = d.busy;
   }
@@ -153,10 +153,10 @@ function renderDeviceRow(device) {
 
 function renderBigCountdown() {
   const items = [];
-  for (const dev of ["step100", "dcu2"]) {
+  for (const dev of ["sda100", "dcu2"]) {
     const d = deviceState[dev];
     if (!d.busy || d.seconds_remaining <= 0) continue;
-    const label = dev === "step100" ? "STEP 100" : "DCU-2";
+    const label = dev === "sda100" ? "STEP 100" : "DCU-2";
     items.push(
       `<div class="big-cd-item">
          <span class="big-cd-label">${label}</span>
@@ -173,8 +173,8 @@ function applyDeviceSnapshot(snap) {
   d.seconds_remaining = snap.seconds_remaining || 0;
   d.seconds_total = snap.seconds_total || 0;
   const portLabel = snap.mock ? "MOCK" : snap.port;
-  if (snap.device === "step100") {
-    els.step100Port.textContent = `port ${portLabel}`;
+  if (snap.device === "sda100") {
+    els.sda100Port.textContent = `port ${portLabel}`;
     if (snap.direction) setSelectedDirection(snap.direction);
   } else {
     els.dcu2Port.textContent = `port ${portLabel}`;
@@ -224,15 +224,15 @@ function applyAntennaState(snap) {
 /* -------------------------------------------------- inputs sync via socket */
 
 const INPUT_HANDLERS = {
-  step100_freq:      (v) => { els.step100Freq.value = v; },
+  sda100_freq:      (v) => { els.sda100Freq.value = v; },
   dcu2_az:           (v) => { els.dcu2Az.value = v; },
-  step100_direction: (v) => { setSelectedDirection(v); },
+  sda100_direction: (v) => { setSelectedDirection(v); },
 };
 
 function applyLastAction(la) {
   if (!la) return;
   els.laTimestamp.textContent = la.timestamp || "—";
-  els.laDevice.textContent    = la.device === "step100" ? "Step 100" : "DCU-2";
+  els.laDevice.textContent    = la.device === "sda100" ? "SDA 100" : "DCU-2";
   els.laAction.textContent    = la.action || "—";
   els.laOperator.textContent  = la.operator || "—";
   els.laDetail.textContent    = la.detail || "—";
@@ -290,7 +290,7 @@ socket.on("disconnect", () => {
 });
 
 socket.on("state", (s) => {
-  applyDeviceSnapshot(s.step100);
+  applyDeviceSnapshot(s.sda100);
   applyDeviceSnapshot(s.dcu2);
   if (s.last_action) applyLastAction(s.last_action);
   if (s.online_users) renderOnlineUsers(s.online_users);
@@ -340,47 +340,47 @@ function showErrorAsLastAction(device, action, message) {
   });
 }
 
-els.step100Freq_btn.addEventListener("click", async () => {
-  const v = els.step100Freq.value.trim();
-  if (!v) { showErrorAsLastAction("step100", "Change Frequency", "frequency required"); return; }
+els.sda100Freq_btn.addEventListener("click", async () => {
+  const v = els.sda100Freq.value.trim();
+  if (!v) { showErrorAsLastAction("sda100", "Change Frequency", "frequency required"); return; }
   const freq_khz = parseInt(v, 10);
   if (!Number.isFinite(freq_khz)) {
-    showErrorAsLastAction("step100", "Change Frequency", "frequency must be an integer"); return;
+    showErrorAsLastAction("sda100", "Change Frequency", "frequency must be an integer"); return;
   }
   try {
-    const { ok, status, data } = await postJSON("/api/step100/frequency", {
+    const { ok, status, data } = await postJSON("/api/sda100/frequency", {
       frequency_khz: freq_khz, direction: getSelectedDirection(),
     });
     if (!ok) {
       const msg = data.error || `HTTP ${status}`;
       const extra = data.seconds_remaining ? ` (${data.seconds_remaining}s remaining)` : "";
-      showErrorAsLastAction("step100", "Change Frequency", msg + extra);
+      showErrorAsLastAction("sda100", "Change Frequency", msg + extra);
     }
-  } catch (e) { showErrorAsLastAction("step100", "Change Frequency", e.message || String(e)); }
+  } catch (e) { showErrorAsLastAction("sda100", "Change Frequency", e.message || String(e)); }
 });
 
-els.step100Home_btn.addEventListener("click", async () => {
+els.sda100Home_btn.addEventListener("click", async () => {
   try {
-    const { ok, status, data } = await postJSON("/api/step100/home", {
+    const { ok, status, data } = await postJSON("/api/sda100/home", {
       direction: getSelectedDirection(),
     });
     if (!ok) {
       const extra = data.seconds_remaining ? ` (${data.seconds_remaining}s remaining)` : "";
-      showErrorAsLastAction("step100", "Home", (data.error || `HTTP ${status}`) + extra);
+      showErrorAsLastAction("sda100", "Home", (data.error || `HTTP ${status}`) + extra);
     }
-  } catch (e) { showErrorAsLastAction("step100", "Home", e.message || String(e)); }
+  } catch (e) { showErrorAsLastAction("sda100", "Home", e.message || String(e)); }
 });
 
-els.step100Cal_btn.addEventListener("click", async () => {
+els.sda100Cal_btn.addEventListener("click", async () => {
   try {
-    const { ok, status, data } = await postJSON("/api/step100/calibrate", {
+    const { ok, status, data } = await postJSON("/api/sda100/calibrate", {
       direction: getSelectedDirection(),
     });
     if (!ok) {
       const extra = data.seconds_remaining ? ` (${data.seconds_remaining}s remaining)` : "";
-      showErrorAsLastAction("step100", "Calibrate", (data.error || `HTTP ${status}`) + extra);
+      showErrorAsLastAction("sda100", "Calibrate", (data.error || `HTTP ${status}`) + extra);
     }
-  } catch (e) { showErrorAsLastAction("step100", "Calibrate", e.message || String(e)); }
+  } catch (e) { showErrorAsLastAction("sda100", "Calibrate", e.message || String(e)); }
 });
 
 document.querySelectorAll(".compass-btn").forEach((btn) => {

@@ -39,6 +39,16 @@ logger = logging.getLogger(__name__)
 # omits it.
 _PHRASE_DISCONNECT = re.compile(r"antennas\s+disconnected\.?", re.IGNORECASE)
 _PHRASE_CONNECT    = re.compile(r"antennas\s+connected\.?",    re.IGNORECASE)
+# Power-cycle notice from the Lightning Rig Saver. Means the antennas are
+# NOW disconnected and will reconnect after a lightning-free period. The
+# wording includes a configurable number of minutes ("...for 10 min after
+# bootup"), so we key only on the stable tail phrase.
+_PHRASE_ANT_CLOSURE = re.compile(r"please\s+wait\s+for\s+ant\s+closure", re.IGNORECASE)
+
+# Custom activity-feed / log message for the power-cycle disconnect.
+POWER_CYCLE_DISCONNECT_MESSAGE = (
+    "Antennas Disconnected due to power outage. Back when no lightning for a period"
+)
 
 # Long timezone name -> short abbreviation -> UTC offset.
 # US zones (where the antenna and the lightning detector live) covered;
@@ -71,13 +81,30 @@ _TIMESTAMP_RE = re.compile(
 )
 
 
+def parse_phrase_event(text: str) -> tuple[Optional[str], Optional[str]]:
+    """Return (status, activity_message_override).
+
+    status is 'connected', 'disconnected', or None (no match).
+    activity_message_override is a custom message string when the matched
+    phrase warrants special wording (currently only the power-cycle notice);
+    otherwise None and the caller uses the default message.
+
+    Disconnect variants are checked before connect, so disconnect wins if
+    more than one phrase somehow appears in a single message.
+    """
+    if _PHRASE_ANT_CLOSURE.search(text):
+        return "disconnected", POWER_CYCLE_DISCONNECT_MESSAGE
+    if _PHRASE_DISCONNECT.search(text):
+        return "disconnected", None
+    if _PHRASE_CONNECT.search(text):
+        return "connected", None
+    return None, None
+
+
 def parse_phrase_status(text: str) -> Optional[str]:
     """Return 'connected', 'disconnected', or None for non-matching text."""
-    if _PHRASE_DISCONNECT.search(text):
-        return "disconnected"
-    if _PHRASE_CONNECT.search(text):
-        return "connected"
-    return None
+    status, _ = parse_phrase_event(text)
+    return status
 
 
 def parse_body_timestamp(text: str) -> Optional[datetime]:
@@ -275,7 +302,7 @@ class EmailListener:
                         continue
 
                 body_text = _get_message_text(msg)
-                status = parse_phrase_status(body_text)
+                status, activity_message = parse_phrase_event(body_text)
                 if status is None:
                     # Not one of ours — still mark UID as processed to avoid
                     # re-evaluating it every poll.
@@ -284,12 +311,14 @@ class EmailListener:
                 ts = _message_timestamp(msg, body_text)
                 self.antenna_state.update(
                     status=status, timestamp=ts, source="email", operator=None,
+                    activity_message=activity_message,
                 )
                 self._processed_uids.add(uid)
                 logger.info(
-                    "email UID %s -> antenna %s at %s",
+                    "email UID %s -> antenna %s at %s%s",
                     uid.decode("ascii", "replace"), status,
                     ts.isoformat(timespec="seconds"),
+                    " (power-cycle notice)" if activity_message else "",
                 )
             except Exception as e:
                 logger.warning("IMAP message %r processing failed: %s", uid, e)

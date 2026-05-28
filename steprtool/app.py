@@ -15,7 +15,7 @@ from .antenna_state import AntennaState
 from .config import Config
 from .connection_tracker import ConnectionTracker
 from .devices.dcu2 import Dcu2Controller
-from .devices.step100 import Step100Controller
+from .devices.sda100 import SDA100Controller
 from .email_listener import EmailListener
 from .routes.api import api as api_blueprint
 from .routes.pages import pages as pages_blueprint
@@ -89,6 +89,10 @@ def create_app(config: Config) -> tuple[Flask, SocketIO]:
         log.info("Activity feed seeded with %d recent event(s) from %s",
                  seeded, USER_ACTIVITY_LOG_FILE)
 
+    # Record the restart itself as the newest event. The service starts at
+    # boot, so this closely tracks machine power-on / reboot time.
+    activity.record("System restart due to power outage or manual shutdown")
+
     # Connection tracker (debounced join/left).
     tracker = ConnectionTracker(activity_feed=activity)
 
@@ -100,15 +104,15 @@ def create_app(config: Config) -> tuple[Flask, SocketIO]:
     )
 
     # Device controllers.
-    step100 = Step100Controller(
-        config.step100, socketio,
+    sda100 = SDA100Controller(
+        config.sda100, socketio,
         freq_change_tens_of_hz=config.udp.freq_change_tens_of_hz,
         activity_feed=activity,
     )
-    step100.antenna_state = antenna_state
+    sda100.antenna_state = antenna_state
     dcu2 = Dcu2Controller(config.dcu2, socketio, activity_feed=activity)
 
-    app.config["STEP100"] = step100
+    app.config["SDA100"] = sda100
     app.config["DCU2"] = dcu2
     app.config["LAST_ACTION"] = None
     app.config["ANTENNA_STATE"] = antenna_state
@@ -119,11 +123,11 @@ def create_app(config: Config) -> tuple[Flask, SocketIO]:
     app.config["CHAT_URL"] = config.chat_url
 
     # Keep server-side LAST_ACTION for newcomers.
-    _orig_step100 = step100._broadcast_last_action
-    def _wrapped_step100(last):
+    _orig_sda100 = sda100._broadcast_last_action
+    def _wrapped_sda100(last):
         app.config["LAST_ACTION"] = last.to_dict()
-        _orig_step100(last)
-    step100._broadcast_last_action = _wrapped_step100  # type: ignore[assignment]
+        _orig_sda100(last)
+    sda100._broadcast_last_action = _wrapped_sda100  # type: ignore[assignment]
 
     _orig_dcu2 = dcu2._broadcast_last_action
     def _wrapped_dcu2(last):
@@ -140,7 +144,7 @@ def create_app(config: Config) -> tuple[Flask, SocketIO]:
     def _on_connect():
         sid = request.sid  # type: ignore[attr-defined]
         emit("state", {
-            "step100": step100.state(),
+            "sda100": sda100.state(),
             "dcu2": dcu2.state(),
             "last_action": app.config.get("LAST_ACTION"),
             "online_users": tracker.public_users(),
@@ -191,7 +195,7 @@ def create_app(config: Config) -> tuple[Flask, SocketIO]:
     udp = UdpListener(
         host=config.udp.bind_host,
         ports=config.udp.ports,
-        step100_controller=step100,
+        sda100_controller=sda100,
     )
     udp.start()
     app.config["UDP_LISTENER"] = udp
@@ -224,8 +228,8 @@ def create_app(config: Config) -> tuple[Flask, SocketIO]:
         "Configuration: Step 100 port=%s wait=%ds direction=%s | "
         "DCU-2 port=%s wait=%ds | UDP %s:%s freq_change=%d | "
         "IC7300=%s | Calendar=%s | Chat=%s",
-        config.step100.serial.port, config.step100.wait_seconds,
-        config.step100.direction,
+        config.sda100.serial.port, config.sda100.wait_seconds,
+        config.sda100.direction,
         config.dcu2.serial.port, config.dcu2.wait_seconds,
         config.udp.bind_host, config.udp.ports,
         config.udp.freq_change_tens_of_hz,

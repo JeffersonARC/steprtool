@@ -1,6 +1,6 @@
 """Shared device-controller machinery.
 
-Each device (Step 100, DCU-2) has:
+Each device (SDA 100, DCU-2) has:
   * a single-in-flight lock with a configured wait time
   * a serial port (or "mock" mode that skips the write)
   * broadcasts to all connected web clients via Socket.IO
@@ -64,7 +64,7 @@ class Operator:
 @dataclass
 class LastAction:
     """Snapshot of the most recent command for any device, shared with clients."""
-    device: str            # "step100" or "dcu2"
+    device: str            # "sda100" or "dcu2"
     action: str
     detail: str
     bytes_hex: str

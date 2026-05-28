@@ -8,36 +8,36 @@
 {% block content %}
 <main class="grid" id="main-grid">
 
-  <!-- Step 100 panel -->
-  <section class="panel" data-device="step100">
+  <!-- SDA 100 panel -->
+  <section class="panel" data-device="sda100">
     <div class="panel-head">
-      <h2>Step 100</h2>
-      <div class="panel-port" id="step100-port">port —</div>
+      <h2>SDA 100</h2>
+      <div class="panel-port" id="sda100-port">port —</div>
     </div>
 
     <fieldset class="direction-fieldset">
       <legend>Direction</legend>
       <div class="direction-options">
-        <label><input type="radio" name="step100-direction" value="normal" checked> <span>Normal</span></label>
-        <label><input type="radio" name="step100-direction" value="180"> <span>180°</span></label>
+        <label><input type="radio" name="sda100-direction" value="normal" checked> <span>Normal</span></label>
+        <label><input type="radio" name="sda100-direction" value="180"> <span>180°</span></label>
       </div>
     </fieldset>
 
     <label class="field">
       <span>Frequency (kHz)</span>
-      <input type="number" id="step100-freq" min="1" max="167772" step="1" inputmode="numeric">
+      <input type="number" id="sda100-freq" min="1" max="167772" step="1" inputmode="numeric">
     </label>
 
     <div class="button-row">
-      <button type="button" id="btn-step100-freq" class="btn-primary">Change Frequency</button>
-      <button type="button" id="btn-step100-home" class="btn-secondary">Home</button>
-      <button type="button" id="btn-step100-cal" class="btn-secondary">Calibrate</button>
+      <button type="button" id="btn-sda100-freq" class="btn-primary">Change Frequency</button>
+      <button type="button" id="btn-sda100-home" class="btn-secondary">Home</button>
+      <button type="button" id="btn-sda100-cal" class="btn-secondary">Calibrate</button>
     </div>
 
-    <div class="device-state" id="step100-state">
-      <span class="state-dot" id="step100-dot"></span>
-      <span class="state-text" id="step100-text">idle</span>
-      <span class="state-countdown" id="step100-countdown"></span>
+    <div class="device-state" id="sda100-state">
+      <span class="state-dot" id="sda100-dot"></span>
+      <span class="state-text" id="sda100-text">idle</span>
+      <span class="state-countdown" id="sda100-countdown"></span>
     </div>
   </section>
 

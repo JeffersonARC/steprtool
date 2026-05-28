@@ -12,7 +12,7 @@ import re
 
 from flask import Blueprint, current_app, jsonify, request
 
-from ..config import STEP100_DIRECTION_MAP
+from ..config import SDA100_DIRECTION_MAP
 from ..devices.base import DeviceBusy, Operator
 
 
@@ -41,8 +41,8 @@ def _extract_direction(payload: dict) -> str:
     direction = (payload.get("direction") or "").strip().lower()
     if not direction:
         raise ValueError("direction is required")
-    if direction not in STEP100_DIRECTION_MAP:
-        raise ValueError(f"direction must be one of {list(STEP100_DIRECTION_MAP)}")
+    if direction not in SDA100_DIRECTION_MAP:
+        raise ValueError(f"direction must be one of {list(SDA100_DIRECTION_MAP)}")
     return direction
 
 
@@ -58,8 +58,8 @@ def _check_antennas_connected():
     return None
 
 
-def _step100():
-    return current_app.config["STEP100"]
+def _sda100():
+    return current_app.config["SDA100"]
 
 
 def _dcu2():
@@ -72,17 +72,17 @@ def _dcu2():
 def status():
     state = current_app.config.get("ANTENNA_STATE")
     return jsonify({
-        "step100": _step100().state(),
+        "sda100": _sda100().state(),
         "dcu2": _dcu2().state(),
         "last_action": current_app.config.get("LAST_ACTION"),
         "antenna_state": state.snapshot() if state else None,
     })
 
 
-# ------------------------------------------------------------------ Step 100
+# ------------------------------------------------------------------ SDA 100
 
-@api.post("/step100/frequency")
-def step100_frequency():
+@api.post("/sda100/frequency")
+def sda100_frequency():
     blocked = _check_antennas_connected()
     if blocked is not None: return blocked
     payload = request.get_json(silent=True) or {}
@@ -100,17 +100,17 @@ def step100_frequency():
         return jsonify({"error": str(e)}), 400
 
     try:
-        result = _step100().change_frequency(freq_khz, direction, operator)
+        result = _sda100().change_frequency(freq_khz, direction, operator)
     except DeviceBusy as e:
         return jsonify({"error": "device busy", "seconds_remaining": e.seconds_remaining}), 409
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
-    return jsonify(_command_result_json("step100", result))
+    return jsonify(_command_result_json("sda100", result))
 
 
-@api.post("/step100/home")
-def step100_home():
+@api.post("/sda100/home")
+def sda100_home():
     blocked = _check_antennas_connected()
     if blocked is not None: return blocked
     payload = request.get_json(silent=True) or {}
@@ -121,17 +121,17 @@ def step100_home():
         return jsonify({"error": str(e)}), 400
 
     try:
-        result = _step100().home(direction, operator)
+        result = _sda100().home(direction, operator)
     except DeviceBusy as e:
         return jsonify({"error": "device busy", "seconds_remaining": e.seconds_remaining}), 409
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
-    return jsonify(_command_result_json("step100", result))
+    return jsonify(_command_result_json("sda100", result))
 
 
-@api.post("/step100/calibrate")
-def step100_calibrate():
+@api.post("/sda100/calibrate")
+def sda100_calibrate():
     blocked = _check_antennas_connected()
     if blocked is not None: return blocked
     payload = request.get_json(silent=True) or {}
@@ -142,13 +142,13 @@ def step100_calibrate():
         return jsonify({"error": str(e)}), 400
 
     try:
-        result = _step100().calibrate(direction, operator)
+        result = _sda100().calibrate(direction, operator)
     except DeviceBusy as e:
         return jsonify({"error": "device busy", "seconds_remaining": e.seconds_remaining}), 409
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
-    return jsonify(_command_result_json("step100", result))
+    return jsonify(_command_result_json("sda100", result))
 
 
 # ---------------------------------------------------------------------- DCU-2

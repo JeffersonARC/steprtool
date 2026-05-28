@@ -15,10 +15,10 @@ _RECV_BUFSIZE = 8192
 
 
 class UdpListener:
-    def __init__(self, host: str, ports: Iterable[int], step100_controller):
+    def __init__(self, host: str, ports: Iterable[int], sda100_controller):
         self.host = host
         self.ports = list(ports)
-        self.step100 = step100_controller
+        self.sda100 = sda100_controller
         self._stop = threading.Event()
         self._threads: list[threading.Thread] = []
         self._sockets: list[socket.socket] = []
@@ -115,6 +115,6 @@ class UdpListener:
             return
 
         try:
-            self.step100.maybe_auto_retune(tx_freq_tens_of_hz)
+            self.sda100.maybe_auto_retune(tx_freq_tens_of_hz)
         except Exception as e:
             logger.warning("auto-retune crashed on UDP packet from %s: %s", addr, e)

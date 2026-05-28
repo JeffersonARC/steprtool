@@ -80,12 +80,17 @@ class AntennaState:
         source: str,
         operator: Optional[str] = None,
         broadcast: bool = True,
+        activity_message: Optional[str] = None,
     ) -> bool:
         """Apply a new event if its timestamp is newer than current.
 
         Returns True if applied, False if rejected as stale. A change of
         status is logged at INFO; a refresh with the same status but newer
         timestamp is logged at DEBUG.
+
+        activity_message, if provided, overrides the default friendly text
+        recorded to the activity feed on a real transition (used e.g. for
+        the power-cycle disconnect notice).
         """
         if status not in VALID_STATUSES:
             raise ValueError(f"status must be one of {VALID_STATUSES}")
@@ -118,12 +123,15 @@ class AntennaState:
         if old_status != status:
             # Friendly message for activity feed and user_activity.log:
             #   "Antennas Disconnected" / "Antennas Reconnected" for emails,
-            #   plus operator attribution for URL overrides.
-            if status == "disconnected":
+            #   plus operator attribution for URL overrides. A caller-supplied
+            #   activity_message (e.g. the power-cycle notice) overrides this.
+            if activity_message:
+                friendly = activity_message
+            elif status == "disconnected":
                 friendly = "Antennas Disconnected"
             else:
                 friendly = "Antennas Reconnected"
-            if source == "override" and operator:
+            if source == "override" and operator and not activity_message:
                 friendly = f"{friendly} (manually by {operator})"
             if self._activity is not None:
                 self._activity.record(friendly)

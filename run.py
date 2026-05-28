@@ -40,7 +40,7 @@ def main() -> int:
 
     print(
         f"steprtool listening on https://{cfg.web.host}:{cfg.web.port}/  "
-        f"(Step 100 port={cfg.step100.serial.port}, "
+        f"(SDA 100 port={cfg.sda100.serial.port}, "
         f"DCU-2 port={cfg.dcu2.serial.port})"
     )
 

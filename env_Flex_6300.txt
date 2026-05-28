@@ -12,25 +12,25 @@ CERT_FILE=certs/cert.pem
 KEY_FILE=certs/key.pem
 
 # -----------------------------------------------------------------------------
-# Step 100 (StepIR antenna controller)
-# Set STEP100_PORT to MOCK (or leave blank) to run without hardware. Bytes
+# SDA 100 (StepIR antenna controller)
+# Set SDA100_PORT to MOCK (or leave blank) to run without hardware. Bytes
 # will still be computed and shown in the UI; nothing is written to a serial
 # port and the wait timer still runs.
 # -----------------------------------------------------------------------------
-STEP100_PORT=com5
-STEP100_BAUD=9600
-STEP100_BYTESIZE=8
-STEP100_PARITY=N
-STEP100_STOPBITS=1
-STEP100_DTR=false
-STEP100_RTS=false
-STEP100_WAIT_SECONDS=10
+SDA100_PORT=com5
+SDA100_BAUD=9600
+SDA100_BYTESIZE=8
+SDA100_PARITY=N
+SDA100_STOPBITS=1
+SDA100_DTR=false
+SDA100_RTS=false
+SDA100_WAIT_SECONDS=10
 
 # Initial element direction. Allowed values: normal, 180
 # Maps to byte 7 of the command frame: 0x00 / 0x40. This is the
 # direction that's selected when the UI first loads; operators can change it
 # at any time from the web interface.
-STEP100_DIRECTION=normal
+SDA100_DIRECTION=normal
 
 # -----------------------------------------------------------------------------
 # DCU-2 (hy-gain rotator controller)
@@ -48,7 +48,7 @@ DCU2_WAIT_SECONDS=10
 # -----------------------------------------------------------------------------
 # N1MM UDP listener
 # steprtool listens for N1MM's RadioInfo XML broadcasts and auto-retunes the
-# Step 100 when N1MM's TXFreq changes by at least FREQ_CHANGE tens-of-Hz from
+# SDA 100 when N1MM's TXFreq changes by at least FREQ_CHANGE tens-of-Hz from
 # the last value we sent.
 #
 # Sockets are opened with SO_REUSEADDR and SO_BROADCAST so multiple consumers

@@ -1,4 +1,4 @@
-"""Step 100 (StepIR) controller.
+"""SDA 100 (StepIR) controller.
 
 Wire protocol (per SteppIR "Transceiver Interface" doc, 06/23/11):
 
@@ -40,7 +40,7 @@ from time import sleep
 from dataclasses import dataclass
 from typing import Optional
 
-from ..config import Step100Config, STEP100_DIRECTION_MAP
+from ..config import SDA100Config, SDA100_DIRECTION_MAP
 from .base import (
     DeviceController,
     LastAction,
@@ -76,9 +76,9 @@ class CommandResult:
 
 
 def _validate_direction(direction: str) -> None:
-    if direction not in STEP100_DIRECTION_MAP:
+    if direction not in SDA100_DIRECTION_MAP:
         raise ValueError(
-            f"direction must be one of {list(STEP100_DIRECTION_MAP)} "
+            f"direction must be one of {list(SDA100_DIRECTION_MAP)} "
             f"(got {direction!r})"
         )
 
@@ -95,12 +95,12 @@ def _validate_freq_khz(freq_khz: int) -> None:
         )
 
 
-class Step100Controller(DeviceController):
+class SDA100Controller(DeviceController):
     """Builds command frames, writes them out, and broadcasts results."""
 
-    def __init__(self, cfg: Step100Config, socketio, freq_change_tens_of_hz: int,
+    def __init__(self, cfg: SDA100Config, socketio, freq_change_tens_of_hz: int,
                  activity_feed=None):
-        super().__init__("step100", cfg.serial, cfg.wait_seconds, socketio)
+        super().__init__("sda100", cfg.serial, cfg.wait_seconds, socketio)
         self.cfg = cfg
 
         # Mutable state. Direction starts from .env; operators can change it
@@ -127,7 +127,7 @@ class Step100Controller(DeviceController):
     # ----------------------------------------------------- frame construction
 
     def build_frame(self, freq_tens_of_hz: int, direction: str, cmd_byte: int) -> bytes:
-        """Build any of the 11-byte Step 100 command frames."""
+        """Build any of the 11-byte SDA 100 command frames."""
         f_hi = (freq_tens_of_hz >> 16) & 0xFF
         f_mid = (freq_tens_of_hz >> 8) & 0xFF
         f_lo = freq_tens_of_hz & 0xFF
@@ -139,7 +139,7 @@ class Step100Controller(DeviceController):
             f_mid,
             f_lo,
             0x00,                                    # 'ac' place filler
-            STEP100_DIRECTION_MAP[direction],
+            SDA100_DIRECTION_MAP[direction],
             cmd_byte,
             0x00,
             0x0D,                                    # CR
@@ -171,9 +171,9 @@ class Step100Controller(DeviceController):
                 self.last_freq_tens_of_hz = last_freq_tens_of_hz
 
     def _inputs_dict(self, freq_khz: Optional[int], direction: str) -> dict:
-        d: dict = {"step100_direction": direction}
+        d: dict = {"sda100_direction": direction}
         if freq_khz is not None:
-            d["step100_freq"] = freq_khz
+            d["sda100_freq"] = freq_khz
         return d
 
     # ---------------------------------------------------------- public actions
@@ -235,6 +235,8 @@ class Step100Controller(DeviceController):
                 freq_tens = self.last_freq_tens_of_hz
             frame = self.build_frame(freq_tens, direction, CMD_HOME)
             hex_str, status = self._send(frame)
+            sleep(1.0)
+            hex_str, status = self._send(frame)
         except Exception:
             self._release_lock()
             raise
@@ -280,6 +282,9 @@ class Step100Controller(DeviceController):
                 freq_tens = self.last_freq_tens_of_hz
             frame = self.build_frame(freq_tens, direction, CMD_CALIBRATE)
             hex_str, status = self._send(frame)
+            sleep(1.0)
+            hex_str, status = self._send(frame)
+
         except Exception:
             self._release_lock()
             raise
@@ -325,7 +330,7 @@ class Step100Controller(DeviceController):
             return False
         if new_freq_tens_of_hz > MAX_WIRE_TENS_OF_HZ:
             logger.warning(
-                "auto-retune: N1MM TXFreq %d exceeds Step 100 protocol max; skipping",
+                "auto-retune: N1MM TXFreq %d exceeds SDA 100 protocol max; skipping",
                 new_freq_tens_of_hz,
             )
             return False

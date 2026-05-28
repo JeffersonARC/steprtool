@@ -22,7 +22,7 @@ from .base import (
     format_bytes_hex,
     now_iso,
 )
-from .step100 import CommandResult
+from .sda100 import CommandResult
 
 
 logger = logging.getLogger(__name__)
