@@ -245,14 +245,32 @@ class EmailListener:
     # ----------------------------------------------------------- lifecycle
 
     def start(self) -> None:
-        """Walk back synchronously to seed initial state, then start polling."""
+        """Walk back synchronously to seed initial state, then start polling.
+
+        If the walkback fails (e.g. service starts at boot before the network
+        and DNS are ready), set a safety baseline and let the poll loop retry
+        the walkback every poll interval until it succeeds. Only after a
+        successful walkback do we switch to incremental new-mail polling.
+        """
+        self._walkback_done = False
         try:
             self._initial_walkback()
+            self._walkback_done = True
         except Exception as e:
             logger.exception("IMAP initial walkback failed: %s", e)
-            # Safety: when we can't reach the mailbox we don't know state;
-            # default to disconnected per the agreed policy.
-            self.antenna_state.replace_default("disconnected", source="default")
+            # Show 'disconnected' for now, but stamp the baseline at epoch so
+            # the retried walkback's events apply correctly (update() rejects
+            # events older than the current state's timestamp; a 'now'
+            # baseline would silently swallow every real email).
+            epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
+            self.antenna_state.replace_default(
+                "disconnected", source="default", timestamp=epoch,
+            )
+            logger.info(
+                "walkback failed; baseline set to disconnected@epoch. "
+                "Poll loop will retry walkback every %ds until it succeeds.",
+                self.poll_seconds,
+            )
 
         self._thread = threading.Thread(
             target=self._poll_loop, name="email-listener", daemon=True,
@@ -447,6 +465,22 @@ class EmailListener:
             if self._stop.is_set():
                 break
             try:
+                if not self._walkback_done:
+                    # Initial walkback didn't succeed (typically because the
+                    # service started before the network was up). Retry it
+                    # now; this gives the same clean "set state silently +
+                    # backfill 5" semantics as a normal startup, instead of
+                    # cascading every missed transition through the live path.
+                    try:
+                        self._initial_walkback()
+                        self._walkback_done = True
+                        logger.info("walkback recovered on poll-loop retry")
+                    except Exception as e:
+                        logger.warning(
+                            "walkback retry failed (will retry in %ds): %s",
+                            self.poll_seconds, e,
+                        )
+                        continue
                 self._poll_once()
             except Exception as e:
                 logger.warning("IMAP poll error: %s", e)
