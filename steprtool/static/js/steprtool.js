@@ -4,6 +4,7 @@
 const els = {
   sda100Freq: $("sda100-freq"),
   sda100Freq_btn: $("btn-sda100-freq"),
+  sda100Direction: $("radio-sda100-direction"),
   sda100Home_btn: $("btn-sda100-home"),
   sda100Cal_btn:  $("btn-sda100-cal"),
   sda100Port: $("sda100-port"),
@@ -223,6 +224,25 @@ els.sda100Freq_btn.addEventListener("click", async () => {
       showErrorAsLastAction("sda100", "Change Frequency", msg + extra);
     }
   } catch (e) { showErrorAsLastAction("sda100", "Change Frequency", e.message || String(e)); }
+});
+
+els.sda100Direction.addEventListener("click", async () => {
+  const v = els.sda100Freq.value.trim();
+  if (!v) { showErrorAsLastAction("sda100", "Change SDA100 Direction", "frequency required"); return; }
+  const freq_khz = parseInt(v, 10);
+  if (!Number.isFinite(freq_khz)) {
+    showErrorAsLastAction("sda100", "Change SDA100 Direction", "frequency must be an integer"); return;
+  }
+  try {
+    const { ok, status, data } = await postJSON("/api/sda100/frequency", {
+      frequency_khz: freq_khz, direction: getSelectedDirection(),
+    });
+    if (!ok) {
+      const msg = data.error || `HTTP ${status}`;
+      const extra = data.seconds_remaining ? ` (${data.seconds_remaining}s remaining)` : "";
+      showErrorAsLastAction("sda100", "Change SDA100 Direction", msg + extra);
+    }
+  } catch (e) { showErrorAsLastAction("sda100", "Change SDA100 Direction", e.message || String(e)); }
 });
 
 els.sda100Home_btn.addEventListener("click", async () => {
