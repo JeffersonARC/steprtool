@@ -11,7 +11,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 
-# Direction names -> byte 7 value in the SDA 100 command frame.
+# Direction names -> byte 7 value in the Step 100 command frame.
 SDA100_DIRECTION_MAP = {
     "normal": 0x00,
     "180": 0x40
@@ -96,6 +96,7 @@ class Config:
     ic7300_url: str = ""
     calendar_url: str = ""
     chat_url: str = ""
+    relay_secret: str = ""
 
 
 class ConfigError(Exception):
@@ -254,4 +255,5 @@ def load_config(env_path: Path | None = None) -> Config:
         ic7300_url=_env("IC7300_URL", "").strip(),
         calendar_url=_env("CALENDAR_URL", "").strip(),
         chat_url=_env("CHAT_URL", "").strip(),
+        relay_secret=_env("RELAY_SECRET", "").strip(),
     )

@@ -79,7 +79,7 @@ def status():
     })
 
 
-# ------------------------------------------------------------------ SDA 100
+# ------------------------------------------------------------------ Step 100
 
 @api.post("/sda100/frequency")
 def sda100_frequency():
@@ -189,3 +189,43 @@ def _command_result_json(device: str, result) -> dict:
         "status": result.status,
         "wait_seconds": result.wait_seconds,
     }
+
+
+# ---------------------------- N1MM remote-relay endpoint ------------------
+# The steprtool-relay desktop helper, run on a remote operator's machine,
+# captures N1MM RadioInfo UDP locally and POSTs the TXFreq value here over
+# HTTPS. Authentication is a single shared secret in the X-Steprtool-Auth
+# header (set RELAY_SECRET in .env; leave blank to disable auth and accept
+# any caller — useful while testing on a closed tailnet).
+
+@api.post("/n1mm/txfreq")
+def n1mm_txfreq():
+    expected = current_app.config.get("RELAY_SECRET", "")
+    if expected:
+        provided = request.headers.get("X-Steprtool-Auth", "")
+        if provided != expected:
+            return jsonify({"error": "unauthorized"}), 401
+
+    payload = request.get_json(silent=True) or {}
+    try:
+        operator = _extract_operator(payload)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    tx_raw = payload.get("tx_freq_tens_of_hz")
+    if tx_raw is None:
+        return jsonify({"error": "tx_freq_tens_of_hz is required"}), 400
+    try:
+        tx_freq = int(tx_raw)
+    except (TypeError, ValueError):
+        return jsonify({"error": "tx_freq_tens_of_hz must be an integer"}), 400
+
+    sda100 = current_app.config["SDA100"]
+    applied, reason = sda100.maybe_auto_retune_remote(
+        tx_freq, operator.name, operator.callsign,
+    )
+    return jsonify({
+        "applied": applied,
+        "reason": reason,
+        "tx_freq_khz": tx_freq // 100,
+    })

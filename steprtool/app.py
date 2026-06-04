@@ -121,6 +121,7 @@ def create_app(config: Config) -> tuple[Flask, SocketIO]:
     app.config["IC7300_URL"] = config.ic7300_url
     app.config["CALENDAR_URL"] = config.calendar_url
     app.config["CHAT_URL"] = config.chat_url
+    app.config["RELAY_SECRET"] = config.relay_secret
 
     # Keep server-side LAST_ACTION for newcomers.
     _orig_sda100 = sda100._broadcast_last_action

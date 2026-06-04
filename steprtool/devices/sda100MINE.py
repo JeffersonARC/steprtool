@@ -1,4 +1,4 @@
-"""Step 100 (StepIR) controller.
+"""SDA 100 (StepIR) controller.
 
 Wire protocol (per SteppIR "Transceiver Interface" doc, 06/23/11):
 
@@ -127,7 +127,7 @@ class SDA100Controller(DeviceController):
     # ----------------------------------------------------- frame construction
 
     def build_frame(self, freq_tens_of_hz: int, direction: str, cmd_byte: int) -> bytes:
-        """Build any of the 11-byte Step 100 command frames."""
+        """Build any of the 11-byte SDA 100 command frames."""
         f_hi = (freq_tens_of_hz >> 16) & 0xFF
         f_mid = (freq_tens_of_hz >> 8) & 0xFF
         f_lo = freq_tens_of_hz & 0xFF
@@ -208,14 +208,11 @@ class SDA100Controller(DeviceController):
             timestamp=now_iso(),
             inputs=self._inputs_dict(freq_khz, direction),
         )
-        if operator.callsign == "N1MMAUTO":
-            user_message = f"N1MM auto-tuned to {freq_khz} kHz"
-        elif operator.callsign == "N1MMREMOTE":
-            # operator.name is pre-formatted as "N1MM ({name} {callsign})"
-            # by maybe_auto_retune_remote().
-            user_message = f"{operator.name} auto-tuned to {freq_khz} kHz"
-        else:
-            user_message = f"{operator.name} {operator.callsign} set frequency to {freq_khz} kHz"
+        user_message = (
+            f"N1MM auto-tuned to {freq_khz} kHz"
+            if operator.callsign == "N1MMAUTO"
+            else f"{operator.name} {operator.callsign} set frequency to {freq_khz} kHz"
+        )
         if self.activity is not None:
             self.activity.record(user_message)
         self._broadcast_last_action(last)
@@ -333,7 +330,7 @@ class SDA100Controller(DeviceController):
             return False
         if new_freq_tens_of_hz > MAX_WIRE_TENS_OF_HZ:
             logger.warning(
-                "auto-retune: N1MM TXFreq %d exceeds Step 100 protocol max; skipping",
+                "auto-retune: N1MM TXFreq %d exceeds SDA 100 protocol max; skipping",
                 new_freq_tens_of_hz,
             )
             return False
@@ -381,64 +378,3 @@ class SDA100Controller(DeviceController):
             logger.warning("auto-retune failed: %s", e)
             return False
         return True
-
-    # ------------------------------------------ remote-relay (HTTPS) retune
-
-    def maybe_auto_retune_remote(
-        self, new_freq_tens_of_hz: int, remote_name: str, remote_callsign: str,
-    ) -> tuple[bool, str]:
-        """Same delta/busy/disconnect logic as maybe_auto_retune(), but
-        invoked by a remote N1MM forwarded over the JSON API. Differs in
-        three ways:
-          1. The first remote packet is NOT silently seeded — the remote
-             operator's relay only starts on an explicit user action, so
-             we honor that intent and retune on packet #1 too (subject to
-             the usual delta check against any prior last_freq).
-          2. The operator label includes the real human name + callsign
-             from the API payload, so the activity feed reads
-             "N1MM (Jane Doe W5XYZ) auto-tuned to 14300 kHz" rather than
-             the anonymous local "N1MM auto-tuned to 14300 kHz".
-          3. Returns (applied, reason) so the API can report back what
-             actually happened.
-        """
-        if new_freq_tens_of_hz <= 0:
-            return False, "invalid frequency"
-        if new_freq_tens_of_hz > MAX_WIRE_TENS_OF_HZ:
-            logger.warning(
-                "remote-retune: TXFreq %d exceeds Step 100 protocol max; skipping",
-                new_freq_tens_of_hz,
-            )
-            return False, "exceeds protocol max"
-        if self.antenna_state is not None and self.antenna_state.is_disconnected():
-            logger.info(
-                "remote-retune: antennas disconnected; skipping (new_freq=%d)",
-                new_freq_tens_of_hz,
-            )
-            return False, "antennas disconnected"
-
-        with self._state_lock_mut:
-            last = self.last_freq_tens_of_hz
-            direction = self.current_direction
-        # First packet ever: any non-zero delta from 0 trivially passes.
-        delta = abs(new_freq_tens_of_hz - last) if last > 0 else new_freq_tens_of_hz
-
-        if last > 0 and delta < self.freq_change_tens_of_hz:
-            return False, "below delta threshold"
-        if self._busy:
-            logger.info(
-                "remote-retune: device busy; skipping (new_freq=%d delta=%d)",
-                new_freq_tens_of_hz, delta,
-            )
-            return False, "device busy"
-
-        freq_khz = new_freq_tens_of_hz // 100
-        operator = Operator(
-            name=f"N1MM ({remote_name} {remote_callsign})",
-            callsign="N1MMREMOTE",
-        )
-        try:
-            self.change_frequency(freq_khz, direction, operator)
-        except Exception as e:
-            logger.warning("remote-retune failed: %s", e)
-            return False, f"error: {e}"
-        return True, "applied"
