@@ -150,6 +150,30 @@ def sda100_calibrate():
 
     return jsonify(_command_result_json("sda100", result))
 
+@api.post("/api/sda100/query")
+def sda100_query():
+    """Query the SDA100 for its current frequency and direction.
+
+    Body (JSON, optional):
+      { "operator_name": "...", "operator_callsign": "..." }
+
+    Returns 200 on success, 409 if device busy, 500 on hardware failure.
+    The server also emits a 'last_action' socket event so all connected
+    browsers update their frequency/direction inputs automatically.
+    """
+    body     = request.get_json(silent=True) or {}
+    operator = _extract_operator(body)
+
+    try:
+        freq_khz, direction = _sda100().query_status(operator)
+    except DeviceBusy as exc:
+        return jsonify({"error": "device busy",
+                        "seconds_remaining": exc.seconds_remaining}), 409
+    except RuntimeError as exc:
+        logger.error("SDA100 query failed: %s", exc)
+        return jsonify({"error": str(exc)}), 500
+
+    return jsonify({"freq_khz": freq_khz, "direction": direction})
 
 # ---------------------------------------------------------------------- DCU-2
 

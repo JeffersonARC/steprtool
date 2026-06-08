@@ -320,6 +320,149 @@ class SDA100Controller(DeviceController):
             wait_seconds=self.wait_seconds,
         )
 
+    # ---------------------------------------------------------- status query
+
+    _QUERY_CMD    = bytes([0x3F, 0x41, 0x0D])   # ASCII "? A CR"
+    _RESP_DIR_MASK = 0x07  # low 3 bits encode direction in status response
+    #   0x00 = normal, 0x02 = 180°, 0x01 = bi-directional, 0x04 = 3/4-wave
+
+    def query_status(
+        self,
+        operator: "Operator",
+        max_attempts: int = 5,
+    ) -> tuple[int, str]:
+        """Read the SDA100's current frequency and direction over serial.
+
+        Protocol — send 3 bytes, read 11-byte response:
+          byte:  0    1    2    3    4    5    6    7    8    9    10
+          value: @    A    0x00 Fh   Fm   Fl   ac   dir  vh   vl   CR
+
+        Frequency: (Fh<<16 | Fm<<8 | Fl) in tens-of-Hz.
+        Direction byte uses DIFFERENT bit encoding from the set command:
+          bit 1 (0x02) = 180°, bit 0 (0x01) = bi-dir, bit 2 (0x04) = 3/4-wave.
+          The doc says "other bits will be set so the value must be filtered" —
+          we mask to bits 0-2 before comparing.
+
+        In MOCK mode: returns current internally-tracked state without touching
+        hardware, and still broadcasts so all UIs refresh.
+
+        Raises DeviceBusy if the antenna wait window is still active.
+        Raises RuntimeError after all max_attempts fail.
+        """
+        self._try_acquire()
+        try:
+            # ------ MOCK path ------
+            if self._serial is None:
+                with self._state_lock_mut:
+                    freq_khz  = self.last_freq_tens_of_hz // 100
+                    direction = self.current_direction
+                logger.info("query_status (MOCK): %d kHz, %s", freq_khz, direction)
+                self._emit_query_result(freq_khz, direction, b"", operator)
+                return freq_khz, direction
+
+            # ------ Real hardware path ------
+            # _try_acquire() sets _busy=True, preventing concurrent auto-retune
+            # commands from racing onto the serial port during our read.
+            # _release_lock() in the finally block clears it WITHOUT calling
+            # _start_wait_timer(), because reading causes no antenna motion.
+            last_error = "no attempts made"
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    saved_timeout = self._serial.timeout
+                    self._serial.timeout = 1.5   # per-attempt read deadline
+                    try:
+                        self._serial.reset_input_buffer()
+                        self._serial.write(self._QUERY_CMD)
+                        self._serial.flush()
+                        raw = self._serial.read(11)
+                    finally:
+                        self._serial.timeout = saved_timeout
+                except Exception as exc:
+                    last_error = f"serial error: {exc}"
+                    logger.warning("SDA100 query %d/%d: %s",
+                                attempt, max_attempts, last_error)
+                    sleep(0.2)
+                    continue
+
+                # --- validate frame ---
+                if len(raw) != 11:
+                    last_error = f"short read: expected 11, got {len(raw)}"
+                    logger.warning("SDA100 query %d/%d: %s",
+                                attempt, max_attempts, last_error)
+                    continue
+                if raw[0] != 0x40 or raw[1] != 0x41:
+                    last_error = f"bad header: {raw[0]:02X} {raw[1]:02X}"
+                    logger.warning("SDA100 query %d/%d: %s",
+                                attempt, max_attempts, last_error)
+                    continue
+                if raw[10] != 0x0D:
+                    last_error = f"bad terminator: {raw[10]:02X}"
+                    logger.warning("SDA100 query %d/%d: %s",
+                                attempt, max_attempts, last_error)
+                    continue
+
+                # --- parse ---
+                freq_tens_hz = (raw[3] << 16) | (raw[4] << 8) | raw[5]
+                freq_khz     = freq_tens_hz // 100
+
+                dir_bits = raw[7] & self._RESP_DIR_MASK
+                if dir_bits == 0x00:
+                    direction = "normal"
+                elif dir_bits == 0x02:
+                    direction = "180"
+                else:
+                    # bi-directional or 3/4-wave — not representable in this UI
+                    with self._state_lock_mut:
+                        direction = self.current_direction
+                    logger.warning(
+                        "SDA100 query: unexpected direction bits 0x%02X "
+                        "(bi-dir or 3/4-wave); keeping current direction=%s",
+                        dir_bits, direction,
+                    )
+
+                logger.info(
+                    "SDA100 query %d/%d OK: %d kHz, %s  raw=%s",
+                    attempt, max_attempts, freq_khz, direction, raw.hex(),
+                )
+                self._update_state(
+                    direction=direction,
+                    last_freq_tens_of_hz=freq_tens_hz,
+                )
+                self._emit_query_result(freq_khz, direction, raw, operator)
+                return freq_khz, direction
+
+        finally:
+            self._release_lock()   # clear busy flag; no wait timer
+
+        raise RuntimeError(
+            f"SDA100 query failed after {max_attempts} attempts: {last_error}"
+        )
+
+    def _emit_query_result(
+        self,
+        freq_khz:  int,
+        direction: str,
+        raw_resp:  bytes,
+        operator:  "Operator",
+    ) -> None:
+        """Broadcast query result to all connected UIs and record activity."""
+        last = LastAction(
+            device=self.name,
+            action="Query SDA100",
+            detail=f"{freq_khz} kHz, direction={direction}",
+            bytes_hex=raw_resp.hex() if raw_resp else "MOCK",
+            status="ok",
+            operator=operator.label(),
+            timestamp=now_iso(),
+            inputs=self._inputs_dict(freq_khz, direction),
+        )
+        self._broadcast_last_action(last)
+        if self.activity is not None:
+            self.activity.record(
+                f"{operator.name} {operator.callsign} "
+                f"queried SDA100: {freq_khz} kHz, {direction} direction"
+            )
+
     # -------------------------------------------------- UDP auto-retune entry
 
     def maybe_auto_retune(self, new_freq_tens_of_hz: int) -> bool:

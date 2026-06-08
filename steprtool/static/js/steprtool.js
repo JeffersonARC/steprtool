@@ -74,7 +74,8 @@ function renderDeviceRow(device) {
     cd.textContent = "";
   }
   if (device === "sda100") {
-    els.sda100Freq_btn.disabled = d.busy;
+    
+     = d.busy;
     els.sda100Home_btn.disabled = d.busy;
     els.sda100Cal_btn.disabled  = d.busy;
   } else {
