@@ -147,25 +147,22 @@ def sda100_calibrate():
         return jsonify({"error": "device busy", "seconds_remaining": e.seconds_remaining}), 409
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
+    print(f"FINALLY  SDA100 calibrate result: {result}")
 
     return jsonify(_command_result_json("sda100", result))
 
 @api.post("/api/sda100/query")
 def sda100_query():
-    """Query the SDA100 for its current frequency and direction.
-
-    Body (JSON, optional):
-      { "operator_name": "...", "operator_callsign": "..." }
-
-    Returns 200 on success, 409 if device busy, 500 on hardware failure.
-    The server also emits a 'last_action' socket event so all connected
-    browsers update their frequency/direction inputs automatically.
-    """
-    body     = request.get_json(silent=True) or {}
-    operator = _extract_operator(body)
+    blocked = _check_antennas_connected()
+    if blocked is not None: return blocked
+    payload = request.get_json(silent=True) or {}
+    try:
+        operator = _extract_operator(payload)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
 
     try:
-        freq_khz, direction = _sda100().query_status(operator)
+        result = _sda100().query_status(operator)
     except DeviceBusy as exc:
         return jsonify({"error": "device busy",
                         "seconds_remaining": exc.seconds_remaining}), 409
@@ -173,7 +170,7 @@ def sda100_query():
         logger.error("SDA100 query failed: %s", exc)
         return jsonify({"error": str(exc)}), 500
 
-    return jsonify({"freq_khz": freq_khz, "direction": direction})
+    return jsonify(_command_result_json("sda100", result))
 
 # ---------------------------------------------------------------------- DCU-2
 

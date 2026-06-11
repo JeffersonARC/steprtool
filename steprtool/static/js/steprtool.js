@@ -7,6 +7,7 @@ const els = {
   sda100Direction: $("radio-sda100-direction"),
   sda100Home_btn: $("btn-sda100-home"),
   sda100Cal_btn:  $("btn-sda100-cal"),
+  sda100Qry_btn:  $("btn-sda100-query"),
   sda100Port: $("sda100-port"),
   sda100Dot:  $("sda100-dot"),
   sda100Text: $("sda100-text"),
@@ -73,9 +74,10 @@ function renderDeviceRow(device) {
     text.textContent = "idle";
     cd.textContent = "";
   }
+
   if (device === "sda100") {
-    
-     = d.busy;
+    els.sda100Qry_btn.disabled = d.busy;
+    els.sda100Freq_btn.disabled = d.busy;
     els.sda100Home_btn.disabled = d.busy;
     els.sda100Cal_btn.disabled  = d.busy;
   } else {
@@ -208,6 +210,21 @@ function showErrorAsLastAction(device, action, message) {
   });
 }
 
+els.sda100Qry_btn.addEventListener("click", async () => {
+  const origText = els.sda100Qry_btn.textContent;
+  els.sda100Qry_btn.textContent = "Querying...";
+  try {
+    const { ok, status, data } = await postJSON("/api/sda100/query", {});
+    if (!ok) {
+      const msg = data.error || `HTTP ${status}`;
+      const extra = data.seconds_remaining ? ` (${data.seconds_remaining}s remaining)` : "";
+      showErrorAsLastAction("sda100", "Change SDA100 Direction", msg + extra);
+    }
+  } catch (e) { showErrorAsLastAction("sda100", "Query SDA100 Frequency + Direction", e.message || String(e)); }
+
+  
+});
+
 els.sda100Freq_btn.addEventListener("click", async () => {
   const v = els.sda100Freq.value.trim();
   if (!v) { showErrorAsLastAction("sda100", "Change Frequency", "frequency required"); return; }
@@ -269,6 +286,8 @@ els.sda100Cal_btn.addEventListener("click", async () => {
     }
   } catch (e) { showErrorAsLastAction("sda100", "Calibrate", e.message || String(e)); }
 });
+
+
 
 document.querySelectorAll(".compass-btn").forEach((btn) => {
   btn.addEventListener("click", () => {
