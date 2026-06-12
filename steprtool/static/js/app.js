@@ -1,4 +1,4 @@
-/* Jefferson ARC StepIR Antenna Control -- client */
+/* Jefferson ARC SteppIR Antenna Control -- client */
 "use strict";
 
 const OPERATOR_STORAGE_KEY = "steprtool.operator.v1";

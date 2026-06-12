@@ -1,4 +1,4 @@
-/* Jefferson ARC StepIR Antenna Control
+/* Jefferson ARC SteppIR Antenna Control
    Utilitarian rack-mount instrument panel aesthetic. Touch-first sizing.
    --------------------------------------------------------------- */
 
@@ -235,7 +235,7 @@ html, body {
   margin: 6px 0 14px;
   filter: drop-shadow(0 2px 4px rgba(0,0,0,0.35));
 }
-/* IC-7300 / StepIR tiles use PNG images */
+/* IC-7300 / SteppIR tiles use PNG images */
 .tile-img {
   width: auto;
   max-width: 100%;
@@ -257,7 +257,7 @@ html, body {
   line-height: 1.35;
 }
 
-/* "← Home" link in the StepIR topbar */
+/* "← Home" link in the SteppIR topbar */
 .topbar-extras {
   display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
 }

@@ -151,7 +151,7 @@ def sda100_calibrate():
 
     return jsonify(_command_result_json("sda100", result))
 
-@api.post("/api/sda100/query")
+@api.post("/sda100/query")
 def sda100_query():
     blocked = _check_antennas_connected()
     if blocked is not None: return blocked

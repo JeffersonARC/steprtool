@@ -1,4 +1,4 @@
-"""SDA 100 (StepIR) controller.
+"""SDA 100 (SteppIR) controller.
 
 Wire protocol (per SteppIR "Transceiver Interface" doc, 06/23/11):
 

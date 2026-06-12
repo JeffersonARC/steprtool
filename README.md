@@ -1,6 +1,6 @@
 # steprtool
 
-Web-based control for a StepIR SDA 100 antenna controller and a hy-gain DCU-2
+Web-based control for a SteppIR SDA 100 antenna controller and a hy-gain DCU-2
 rotator controller, used by Jefferson Amateur Radio Club operators on a Flex
 6300 setup. Runs on Windows 11. One computer (computer A) has the physical
 USB-to-serial connections to both devices; operators on the LAN (or remotely

@@ -183,6 +183,44 @@ class DeviceController:
             ser.close()
         logger.info("%s SENT %s: %s", self.name, self.serial_cfg.port, format_bytes_hex(data))
         return "SENT"
+    
+    def _write_then_read_bytes(self, data: bytes, read_count: int) -> tuple[str, bytes]:
+        """Write data then read a response on the same open port.
+
+        Opens and closes the port exactly like _write_bytes() does, but keeps
+        it open between the write and the read so the response isn't lost.
+        Returns (status, raw_bytes); status is "SENT" or "MOCK".
+        In MOCK mode raw_bytes is empty — callers must handle that.
+        """
+        if self.serial_cfg.is_mock:
+            logger.info("%s MOCK write+read: %s", self.name, format_bytes_hex(data))
+            return "MOCK", b""
+
+        ser = serial.Serial(
+            port=self.serial_cfg.port,
+            baudrate=self.serial_cfg.baud,
+            bytesize=_BYTESIZE_MAP[self.serial_cfg.bytesize],
+            parity=_PARITY_MAP[self.serial_cfg.parity],
+            stopbits=_STOPBITS_MAP[self.serial_cfg.stopbits],
+            dsrdtr=False,
+            rtscts=False,
+            timeout=1.5,
+            write_timeout=2.0,
+        )
+        try:
+            ser.dtr = self.serial_cfg.dtr
+            ser.rts = self.serial_cfg.rts
+            ser.reset_input_buffer()
+            ser.write(data)
+            ser.flush()
+            raw = ser.read(read_count)
+        finally:
+            ser.close()
+        logger.info(
+            "%s SENT+READ %s: wrote %s, read %d byte(s)",
+            self.name, self.serial_cfg.port, format_bytes_hex(data), len(raw),
+        )
+        return "SENT", raw
 
     def _broadcast_last_action(self, last: LastAction) -> None:
         self.socketio.emit("last_action", last.to_dict())
