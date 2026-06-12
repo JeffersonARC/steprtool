@@ -4,7 +4,7 @@ Run on one port while steprtool uses the other end of the pair.
 import serial
 
 SIM_PORT  = "COM2"    # the port steprtool is NOT using
-BAUD      = 9600
+BAUD      = 4800
 
 # Build a realistic response: 14.300 MHz normal direction
 FREQ_KHZ     = 14300
@@ -40,10 +40,11 @@ while reset:
             data = ser.read(3)
             if not data:
                 continue
-            if data == QUERY_CMD:
-                print(f"  Got query ({data.hex().upper()}), sending response")
-                ser.write(response)
-                ser.flush()
-            else:
-                print(f"  Got unexpected bytes: {data.hex().upper()}")
-                reset = True
+            print(f"Received: {data.upper()}, {data.hex.upper()}")
+            # if data == QUERY_CMD:
+            #     print(f"  Got query ({data.hex().upper()}), sending response")
+            #     ser.write(response)
+            #     ser.flush()
+            # else:
+            #     print(f"  Got unexpected bytes: {data.hex().upper()}")
+            #     reset = True

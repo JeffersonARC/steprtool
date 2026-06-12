@@ -13,6 +13,8 @@ rotation time.
 from __future__ import annotations
 
 import logging
+from time import sleep
+
 
 from ..config import Dcu2Config
 from .base import (
@@ -43,7 +45,7 @@ class Dcu2Controller(DeviceController):
 
     def build_azimuth_command(self, azimuth: int) -> bytes:
         self._validate_azimuth(azimuth)
-        return f"AP1{azimuth:03d};AM1;".encode("ascii")
+        return f"AP1{azimuth:03d};".encode("ascii")
 
     def change_direction(self, azimuth: int, operator: Operator) -> CommandResult:
         self._try_acquire()
@@ -51,6 +53,10 @@ class Dcu2Controller(DeviceController):
             frame = self.build_azimuth_command(azimuth)
             hex_str = format_bytes_hex(frame)
             status = self._write_bytes(frame)
+            sleep(0.5)
+            frame2 = "AM1;".encode("ascii")
+            hex_str2 = format_bytes_hex(frame2)
+            status2 = self._write_bytes(frame2)
         except Exception:
             self._release_lock()
             raise
@@ -61,7 +67,7 @@ class Dcu2Controller(DeviceController):
             action="Change Direction",
             detail=detail,
             bytes_hex=hex_str,
-            status=status,
+            status=status & status2,
             operator=operator.label(),
             timestamp=now_iso(),
             inputs={"dcu2_az": azimuth},
