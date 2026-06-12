@@ -1,29 +1,13 @@
-/* Jefferson ARC SteppIR Antenna Control -- client */
+/* steprtool page: device controls. */
 "use strict";
 
-const OPERATOR_STORAGE_KEY = "steprtool.operator.v1";
-
-const $ = (id) => document.getElementById(id);
-
 const els = {
-  opModal:     $("operator-modal"),
-  opName:      $("op-name"),
-  opCall:      $("op-callsign"),
-  opErr:       $("op-error"),
-  opSave:      $("op-save"),
-  opDisplay:   $("op-display"),
-  opChange:    $("op-change"),
-
-  onlinePills: $("online-pills"),
-
-  antennaAlert:     $("antenna-alert"),
-  antennaAlertText: $("antenna-alert-text"),
-  mainGrid:         $("main-grid"),
-
   sda100Freq: $("sda100-freq"),
   sda100Freq_btn: $("btn-sda100-freq"),
+  sda100Direction: $("radio-sda100-direction"),
   sda100Home_btn: $("btn-sda100-home"),
   sda100Cal_btn:  $("btn-sda100-cal"),
+  sda100Qry_btn:  $("btn-sda100-query"),
   sda100Port: $("sda100-port"),
   sda100Dot:  $("sda100-dot"),
   sda100Text: $("sda100-text"),
@@ -44,59 +28,7 @@ const els = {
   laDetail:    $("la-detail"),
   laBytes:     $("la-bytes"),
   bigCountdown:$("big-countdown"),
-
-  connStatus:  $("conn-status"),
 };
-
-/* ----------------------------------------------------- operator (localStorage) */
-
-function getOperator() {
-  try {
-    const raw = localStorage.getItem(OPERATOR_STORAGE_KEY);
-    if (!raw) return null;
-    const obj = JSON.parse(raw);
-    if (!obj || !obj.name || !obj.callsign) return null;
-    return { name: String(obj.name).trim(), callsign: String(obj.callsign).trim().toUpperCase() };
-  } catch (_) { return null; }
-}
-
-function setOperator(op) {
-  localStorage.setItem(OPERATOR_STORAGE_KEY, JSON.stringify(op));
-  renderOperator();
-  if (socket && socket.connected) socket.emit("identify", op);
-}
-
-function renderOperator() {
-  const op = getOperator();
-  if (op) {
-    els.opDisplay.textContent = `${op.callsign} (${op.name})`;
-    els.opModal.classList.add("hidden");
-  } else {
-    els.opDisplay.textContent = "—";
-    els.opModal.classList.remove("hidden");
-    els.opName.focus();
-  }
-}
-
-function showOperatorModal() {
-  const op = getOperator();
-  if (op) { els.opName.value = op.name; els.opCall.value = op.callsign; }
-  els.opErr.hidden = true;
-  els.opModal.classList.remove("hidden");
-  els.opName.focus();
-}
-
-els.opSave.addEventListener("click", () => {
-  const name = els.opName.value.trim();
-  const callsign = els.opCall.value.trim().toUpperCase();
-  if (!name) { els.opErr.textContent = "Name is required."; els.opErr.hidden = false; return; }
-  if (!/^[A-Z0-9]{3,10}$/.test(callsign)) {
-    els.opErr.textContent = "Callsign must be 3–10 letters or digits.";
-    els.opErr.hidden = false; return;
-  }
-  setOperator({ name, callsign });
-});
-els.opChange.addEventListener("click", showOperatorModal);
 
 /* ------------------------------------------------------- direction helpers */
 
@@ -142,7 +74,9 @@ function renderDeviceRow(device) {
     text.textContent = "idle";
     cd.textContent = "";
   }
+
   if (device === "sda100") {
+    els.sda100Qry_btn.disabled = d.busy;
     els.sda100Freq_btn.disabled = d.busy;
     els.sda100Home_btn.disabled = d.busy;
     els.sda100Cal_btn.disabled  = d.busy;
@@ -183,44 +117,6 @@ function applyDeviceSnapshot(snap) {
   renderBigCountdown();
 }
 
-/* ------------------------------------------------------- antenna state UI */
-
-function formatLocalTimestamp(isoString) {
-  if (!isoString) return "";
-  const d = new Date(isoString);
-  if (isNaN(d.getTime())) return isoString;
-  // Compact local-time display, e.g. "May 22, 2026, 2:14:19 PM CDT"
-  try {
-    return d.toLocaleString(undefined, {
-      year: "numeric", month: "short", day: "numeric",
-      hour: "numeric", minute: "2-digit", second: "2-digit",
-      timeZoneName: "short",
-    });
-  } catch (_) { return d.toString(); }
-}
-
-function applyAntennaState(snap) {
-  if (!snap) return;
-  const disconnected = snap.status === "disconnected";
-  if (disconnected) {
-    const when = formatLocalTimestamp(snap.timestamp);
-    let msg = `Antennas were disconnected at ${when}`;
-    if (snap.source === "override" && snap.operator) {
-      msg += ` (manual override by ${snap.operator})`;
-    } else if (snap.source === "default") {
-      msg += ` (default — no email walkback)`;
-    }
-    els.antennaAlertText.textContent = msg;
-    els.antennaAlert.hidden = false;
-    els.antennaAlert.classList.add("visible");
-    els.mainGrid.classList.add("locked");
-  } else {
-    els.antennaAlert.hidden = true;
-    els.antennaAlert.classList.remove("visible");
-    els.mainGrid.classList.remove("locked");
-  }
-}
-
 /* -------------------------------------------------- inputs sync via socket */
 
 const INPUT_HANDLERS = {
@@ -253,52 +149,13 @@ function applyLastAction(la) {
   }
 }
 
-/* ----------------------------------------------------------- online users */
+/* ----------------------------------------- socket events specific to this page */
 
-function renderOnlineUsers(list) {
-  if (!Array.isArray(list) || list.length === 0) {
-    els.onlinePills.innerHTML = '<span class="online-empty">no one online yet</span>';
-    return;
-  }
-  els.onlinePills.innerHTML = list.map((u) => {
-    const call = String(u.callsign || "").trim();
-    const name = String(u.name || "").trim();
-    return `<span class="online-pill"><span class="pill-call">${escapeHtml(call)}</span>` +
-           (name ? `<span class="pill-name">${escapeHtml(name)}</span>` : "") + `</span>`;
-  }).join("");
-}
-function escapeHtml(s) {
-  return s.replace(/[&<>"']/g, (c) => ({
-    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
-  }[c]));
-}
-
-/* ------------------------------------------------------------- socket.io */
-
-const socket = io({ transports: ["websocket", "polling"] });
-
-socket.on("connect", () => {
-  els.connStatus.textContent = "connected";
-  els.connStatus.classList.remove("conn-down"); els.connStatus.classList.add("conn-up");
-  const op = getOperator();
-  if (op) socket.emit("identify", op);
-});
-
-socket.on("disconnect", () => {
-  els.connStatus.textContent = "disconnected";
-  els.connStatus.classList.remove("conn-up"); els.connStatus.classList.add("conn-down");
-});
-
-socket.on("state", (s) => {
-  applyDeviceSnapshot(s.sda100);
-  applyDeviceSnapshot(s.dcu2);
+window.onStateMessage = function(s) {
+  if (s.sda100) applyDeviceSnapshot(s.sda100);
+  if (s.dcu2)    applyDeviceSnapshot(s.dcu2);
   if (s.last_action) applyLastAction(s.last_action);
-  if (s.online_users) renderOnlineUsers(s.online_users);
-  if (s.antenna_state) applyAntennaState(s.antenna_state);
-});
-
-socket.on("online_users", (list) => renderOnlineUsers(list));
-socket.on("antenna_state", (snap) => applyAntennaState(snap));
+};
 
 socket.on("device_locked", ({ device, seconds_remaining, seconds_total }) => {
   const d = deviceState[device];
@@ -317,9 +174,22 @@ socket.on("last_action", (la) => applyLastAction(la));
 
 /* ----------------------------------------------------------- API calls */
 
+function getOperator() {
+  try {
+    const raw = localStorage.getItem("steprtool.operator.v1");
+    if (!raw) return null;
+    const o = JSON.parse(raw);
+    if (!o || !o.name || !o.callsign) return null;
+    return { name: String(o.name).trim(), callsign: String(o.callsign).trim().toUpperCase() };
+  } catch (_) { return null; }
+}
+
 async function postJSON(url, body) {
   const op = getOperator();
-  if (!op) { showOperatorModal(); throw new Error("operator not set"); }
+  if (!op) {
+    // Common.js handles showing the modal; just bail.
+    throw new Error("operator not set");
+  }
   const payload = Object.assign({ operator: op }, body);
   const res = await fetch(url, {
     method: "POST",
@@ -340,6 +210,21 @@ function showErrorAsLastAction(device, action, message) {
   });
 }
 
+els.sda100Qry_btn.addEventListener("click", async () => {
+  const origText = els.sda100Qry_btn.textContent;
+  els.sda100Qry_btn.textContent = "Querying...";
+  try {
+    const { ok, status, data } = await postJSON("/api/sda100/query", {});
+    if (!ok) {
+      const msg = data.error || `HTTP ${status}`;
+      const extra = data.seconds_remaining ? ` (${data.seconds_remaining}s remaining)` : "";
+      showErrorAsLastAction("sda100", "Change SDA100 Direction", msg + extra);
+    }
+  } catch (e) { showErrorAsLastAction("sda100", "Query SDA100 Frequency + Direction", e.message || String(e)); }
+
+  
+});
+
 els.sda100Freq_btn.addEventListener("click", async () => {
   const v = els.sda100Freq.value.trim();
   if (!v) { showErrorAsLastAction("sda100", "Change Frequency", "frequency required"); return; }
@@ -357,6 +242,25 @@ els.sda100Freq_btn.addEventListener("click", async () => {
       showErrorAsLastAction("sda100", "Change Frequency", msg + extra);
     }
   } catch (e) { showErrorAsLastAction("sda100", "Change Frequency", e.message || String(e)); }
+});
+
+els.sda100Direction.addEventListener("click", async () => {
+  const v = els.sda100Freq.value.trim();
+  if (!v) { showErrorAsLastAction("sda100", "Change SDA100 Direction", "frequency required"); return; }
+  const freq_khz = parseInt(v, 10);
+  if (!Number.isFinite(freq_khz)) {
+    showErrorAsLastAction("sda100", "Change SDA100 Direction", "frequency must be an integer"); return;
+  }
+  try {
+    const { ok, status, data } = await postJSON("/api/sda100/frequency", {
+      frequency_khz: freq_khz, direction: getSelectedDirection(),
+    });
+    if (!ok) {
+      const msg = data.error || `HTTP ${status}`;
+      const extra = data.seconds_remaining ? ` (${data.seconds_remaining}s remaining)` : "";
+      showErrorAsLastAction("sda100", "Change SDA100 Direction", msg + extra);
+    }
+  } catch (e) { showErrorAsLastAction("sda100", "Change SDA100 Direction", e.message || String(e)); }
 });
 
 els.sda100Home_btn.addEventListener("click", async () => {
@@ -383,6 +287,8 @@ els.sda100Cal_btn.addEventListener("click", async () => {
   } catch (e) { showErrorAsLastAction("sda100", "Calibrate", e.message || String(e)); }
 });
 
+
+
 document.querySelectorAll(".compass-btn").forEach((btn) => {
   btn.addEventListener("click", () => {
     els.dcu2Az.value = btn.dataset.az; els.dcu2Az.focus();
@@ -405,6 +311,3 @@ els.dcu2Go.addEventListener("click", async () => {
     }
   } catch (e) { showErrorAsLastAction("dcu2", "Change Direction", e.message || String(e)); }
 });
-
-renderOperator();
-renderOnlineUsers([]);

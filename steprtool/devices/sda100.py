@@ -40,7 +40,7 @@ from time import sleep
 from dataclasses import dataclass
 from typing import Optional
 
-from ..config import Step100Config, STEP100_DIRECTION_MAP
+from ..config import SDA100Config, SDA100_DIRECTION_MAP
 from .base import (
     DeviceController,
     LastAction,
@@ -76,9 +76,9 @@ class CommandResult:
 
 
 def _validate_direction(direction: str) -> None:
-    if direction not in STEP100_DIRECTION_MAP:
+    if direction not in SDA100_DIRECTION_MAP:
         raise ValueError(
-            f"direction must be one of {list(STEP100_DIRECTION_MAP)} "
+            f"direction must be one of {list(SDA100_DIRECTION_MAP)} "
             f"(got {direction!r})"
         )
 
@@ -95,11 +95,12 @@ def _validate_freq_khz(freq_khz: int) -> None:
         )
 
 
-class Step100Controller(DeviceController):
+class SDA100Controller(DeviceController):
     """Builds command frames, writes them out, and broadcasts results."""
 
-    def __init__(self, cfg: Step100Config, socketio, freq_change_tens_of_hz: int):
-        super().__init__("step100", cfg.serial, cfg.wait_seconds, socketio)
+    def __init__(self, cfg: SDA100Config, socketio, freq_change_tens_of_hz: int,
+                 activity_feed=None):
+        super().__init__("sda100", cfg.serial, cfg.wait_seconds, socketio)
         self.cfg = cfg
 
         # Mutable state. Direction starts from .env; operators can change it
@@ -113,6 +114,15 @@ class Step100Controller(DeviceController):
         self._auto_seeded: bool = False            # first UDP message just seeds
 
         self.freq_change_tens_of_hz = freq_change_tens_of_hz
+
+        # Set by app.py after construction. When non-None and reporting
+        # "disconnected", auto-retune is suppressed. (Manual commands are
+        # blocked at the route layer; this guard is for the UDP path.)
+        self.antenna_state = None
+
+        # Activity feed records friendly user-facing events. Optional so
+        # legacy tests/scripts can instantiate without one.
+        self.activity = activity_feed
 
     # ----------------------------------------------------- frame construction
 
@@ -129,7 +139,7 @@ class Step100Controller(DeviceController):
             f_mid,
             f_lo,
             0x00,                                    # 'ac' place filler
-            STEP100_DIRECTION_MAP[direction],
+            SDA100_DIRECTION_MAP[direction],
             cmd_byte,
             0x00,
             0x0D,                                    # CR
@@ -161,9 +171,9 @@ class Step100Controller(DeviceController):
                 self.last_freq_tens_of_hz = last_freq_tens_of_hz
 
     def _inputs_dict(self, freq_khz: Optional[int], direction: str) -> dict:
-        d: dict = {"step100_direction": direction}
+        d: dict = {"sda100_direction": direction}
         if freq_khz is not None:
-            d["step100_freq"] = freq_khz
+            d["sda100_freq"] = freq_khz
         return d
 
     # ---------------------------------------------------------- public actions
@@ -198,10 +208,16 @@ class Step100Controller(DeviceController):
             timestamp=now_iso(),
             inputs=self._inputs_dict(freq_khz, direction),
         )
-        logger.info(
-            "[%s] step100.change_frequency %s | bytes %s | status=%s",
-            operator.label(), detail, hex_str, status,
-        )
+        if operator.callsign == "N1MMAUTO":
+            user_message = f"N1MM auto-tuned to {freq_khz} kHz"
+        elif operator.callsign == "N1MMREMOTE":
+            # operator.name is pre-formatted as "N1MM ({name} {callsign})"
+            # by maybe_auto_retune_remote().
+            user_message = f"{operator.name} auto-tuned to {freq_khz} kHz"
+        else:
+            user_message = f"{operator.name} {operator.callsign} set frequency to {freq_khz} kHz"
+        if self.activity is not None:
+            self.activity.record(user_message)
         self._broadcast_last_action(last)
         self._start_wait_timer()
         return CommandResult(
@@ -221,6 +237,8 @@ class Step100Controller(DeviceController):
             with self._state_lock_mut:
                 freq_tens = self.last_freq_tens_of_hz
             frame = self.build_frame(freq_tens, direction, CMD_HOME)
+            hex_str, status = self._send(frame)
+            sleep(1.0)
             hex_str, status = self._send(frame)
         except Exception:
             self._release_lock()
@@ -243,10 +261,10 @@ class Step100Controller(DeviceController):
             timestamp=now_iso(),
             inputs=self._inputs_dict(None, direction),
         )
-        logger.info(
-            "[%s] step100.home | bytes %s | status=%s",
-            operator.label(), hex_str, status,
-        )
+        if self.activity is not None:
+            self.activity.record(
+                f"{operator.name} {operator.callsign} homed the antenna"
+            )
         self._broadcast_last_action(last)
         self._start_wait_timer()
         return CommandResult(
@@ -267,6 +285,9 @@ class Step100Controller(DeviceController):
                 freq_tens = self.last_freq_tens_of_hz
             frame = self.build_frame(freq_tens, direction, CMD_CALIBRATE)
             hex_str, status = self._send(frame)
+            sleep(1.0)
+            hex_str, status = self._send(frame)
+
         except Exception:
             self._release_lock()
             raise
@@ -285,10 +306,10 @@ class Step100Controller(DeviceController):
             timestamp=now_iso(),
             inputs=self._inputs_dict(None, direction),
         )
-        logger.info(
-            "[%s] step100.calibrate | bytes %s | status=%s",
-            operator.label(), hex_str, status,
-        )
+        if self.activity is not None:
+            self.activity.record(
+                f"{operator.name} {operator.callsign} calibrated the antenna"
+            )
         self._broadcast_last_action(last)
         self._start_wait_timer()
         return CommandResult(
@@ -297,6 +318,149 @@ class Step100Controller(DeviceController):
             bytes_hex=hex_str,
             status=status,
             wait_seconds=self.wait_seconds,
+        )
+
+# ---------------------------------------------------------- status query
+
+    _QUERY_CMD     = bytes([0x3F, 0x41, 0x0D])  # ASCII "? A CR"
+    _RESP_DIR_MASK = 0x07   # low 3 bits carry direction in status response
+    #   0x00 = normal, 0x02 = 180°, 0x01 = bi-directional, 0x04 = 3/4-wave
+
+    def query_status(self, operator: Operator, max_attempts: int = 5) -> CommandResult:
+        self._try_acquire()
+
+        # Tell all connected clients the device is busy immediately, so their
+        # buttons disable the same way they do for any other command.
+        # Unlike _start_wait_timer(), we don't run a countdown — the try/finally
+        # below emits device_unlocked as soon as the query finishes (or fails),
+        # which is seconds not wait_seconds.
+        estimated_secs = max_attempts * 2
+        self.socketio.emit(
+            "device_locked",
+            {
+                "device": self.name,
+                "seconds_remaining": estimated_secs,
+                "seconds_total":     estimated_secs,
+            },
+        )
+
+        try:
+            # ---------------------------------------------------------------- MOCK
+            if self.serial_cfg.is_mock:
+                with self._state_lock_mut:
+                    freq_khz  = self.last_freq_tens_of_hz // 100
+                    direction = self.current_direction
+                detail = f"{freq_khz} kHz, direction={direction}"
+                last = LastAction(
+                    device=self.name,
+                    action="Query SDA100",
+                    detail=detail,
+                    bytes_hex="",
+                    status="MOCK",
+                    operator=operator.label(),
+                    timestamp=now_iso(),
+                    inputs=self._inputs_dict(freq_khz, direction),
+                )
+                if self.activity is not None:
+                    self.activity.record(
+                        f"{operator.name} {operator.callsign} "
+                        f"queried SDA100: {freq_khz} kHz, {direction} direction"
+                    )
+                self._broadcast_last_action(last)
+                return CommandResult(
+                    action="Query SDA100",
+                    detail=detail,
+                    bytes_hex="",
+                    status="MOCK",
+                    wait_seconds=0,
+                )
+
+            # -------------------------------------------------------- real hardware
+            last_error = "no attempts made"
+            for attempt in range(1, max_attempts + 1):
+
+                try:
+                    status, raw = self._write_then_read_bytes(self._QUERY_CMD, 11)
+                except Exception as exc:
+                    last_error = f"serial error: {exc}"
+                    logger.warning("SDA100 query %d/%d: %s",
+                                   attempt, max_attempts, last_error)
+                    sleep(0.2)
+                    continue
+
+                if len(raw) != 11:
+                    last_error = f"short read: expected 11, got {len(raw)}"
+                    logger.warning("SDA100 query %d/%d: %s",
+                                   attempt, max_attempts, last_error)
+                    continue
+                if raw[0] != 0x40 or raw[1] != 0x41:
+                    last_error = f"bad header: {raw[0]:02X} {raw[1]:02X}"
+                    logger.warning("SDA100 query %d/%d: %s",
+                                   attempt, max_attempts, last_error)
+                    continue
+                if raw[10] != 0x0D:
+                    last_error = f"bad terminator: {raw[10]:02X}"
+                    logger.warning("SDA100 query %d/%d: %s",
+                                   attempt, max_attempts, last_error)
+                    continue
+
+                freq_tens_hz = (raw[3] << 16) | (raw[4] << 8) | raw[5]
+                freq_khz     = freq_tens_hz // 100
+
+                dir_bits = raw[7] & self._RESP_DIR_MASK
+                if dir_bits == 0x00:
+                    direction = "normal"
+                elif dir_bits == 0x02:
+                    direction = "180"
+                else:
+                    with self._state_lock_mut:
+                        direction = self.current_direction
+                    logger.warning(
+                        "SDA100 query %d/%d: unexpected direction bits 0x%02X "
+                        "(bi-dir or 3/4-wave); keeping direction=%s",
+                        attempt, max_attempts, dir_bits, direction,
+                    )
+
+                logger.info("SDA100 query %d/%d OK: %d kHz, %s  raw=%s",
+                            attempt, max_attempts, freq_khz, direction, raw.hex())
+
+                self._update_state(direction=direction,
+                                   last_freq_tens_of_hz=freq_tens_hz)
+                detail  = f"{freq_khz} kHz, direction={direction}"
+                hex_str = format_bytes_hex(raw)
+                last = LastAction(
+                    device=self.name,
+                    action="Query SDA100",
+                    detail=detail,
+                    bytes_hex=hex_str,
+                    status=status,
+                    operator=operator.label(),
+                    timestamp=now_iso(),
+                    inputs=self._inputs_dict(freq_khz, direction),
+                )
+                if self.activity is not None:
+                    self.activity.record(
+                        f"{operator.name} {operator.callsign} "
+                        f"queried SDA100: {freq_khz} kHz, {direction} direction"
+                    )
+                self._broadcast_last_action(last)
+                return CommandResult(
+                    action="Query SDA100",
+                    detail=detail,
+                    bytes_hex=hex_str,
+                    status=status,
+                    wait_seconds=0,
+                )
+
+        finally:
+            # Runs on every exit path: success return, exhausted-loop fall-through,
+            # and any unexpected exception. Always unlocks the device and tells
+            # all clients they can use it again.
+            self._release_lock()
+            self.socketio.emit("device_unlocked", {"device": self.name})
+
+        raise RuntimeError(
+            f"SDA100 query failed after {max_attempts} attempts: {last_error}"
         )
 
     # -------------------------------------------------- UDP auto-retune entry
@@ -313,6 +477,12 @@ class Step100Controller(DeviceController):
         if new_freq_tens_of_hz > MAX_WIRE_TENS_OF_HZ:
             logger.warning(
                 "auto-retune: N1MM TXFreq %d exceeds Step 100 protocol max; skipping",
+                new_freq_tens_of_hz,
+            )
+            return False
+        if self.antenna_state is not None and self.antenna_state.is_disconnected():
+            logger.info(
+                "auto-retune: antennas disconnected; skipping (new_freq=%d)",
                 new_freq_tens_of_hz,
             )
             return False
@@ -354,3 +524,64 @@ class Step100Controller(DeviceController):
             logger.warning("auto-retune failed: %s", e)
             return False
         return True
+
+    # ------------------------------------------ remote-relay (HTTPS) retune
+
+    def maybe_auto_retune_remote(
+        self, new_freq_tens_of_hz: int, remote_name: str, remote_callsign: str,
+    ) -> tuple[bool, str]:
+        """Same delta/busy/disconnect logic as maybe_auto_retune(), but
+        invoked by a remote N1MM forwarded over the JSON API. Differs in
+        three ways:
+          1. The first remote packet is NOT silently seeded — the remote
+             operator's relay only starts on an explicit user action, so
+             we honor that intent and retune on packet #1 too (subject to
+             the usual delta check against any prior last_freq).
+          2. The operator label includes the real human name + callsign
+             from the API payload, so the activity feed reads
+             "N1MM (Jane Doe W5XYZ) auto-tuned to 14300 kHz" rather than
+             the anonymous local "N1MM auto-tuned to 14300 kHz".
+          3. Returns (applied, reason) so the API can report back what
+             actually happened.
+        """
+        if new_freq_tens_of_hz <= 0:
+            return False, "invalid frequency"
+        if new_freq_tens_of_hz > MAX_WIRE_TENS_OF_HZ:
+            logger.warning(
+                "remote-retune: TXFreq %d exceeds Step 100 protocol max; skipping",
+                new_freq_tens_of_hz,
+            )
+            return False, "exceeds protocol max"
+        if self.antenna_state is not None and self.antenna_state.is_disconnected():
+            logger.info(
+                "remote-retune: antennas disconnected; skipping (new_freq=%d)",
+                new_freq_tens_of_hz,
+            )
+            return False, "antennas disconnected"
+
+        with self._state_lock_mut:
+            last = self.last_freq_tens_of_hz
+            direction = self.current_direction
+        # First packet ever: any non-zero delta from 0 trivially passes.
+        delta = abs(new_freq_tens_of_hz - last) if last > 0 else new_freq_tens_of_hz
+
+        if last > 0 and delta < self.freq_change_tens_of_hz:
+            return False, "below delta threshold"
+        if self._busy:
+            logger.info(
+                "remote-retune: device busy; skipping (new_freq=%d delta=%d)",
+                new_freq_tens_of_hz, delta,
+            )
+            return False, "device busy"
+
+        freq_khz = new_freq_tens_of_hz // 100
+        operator = Operator(
+            name=f"N1MM ({remote_name} {remote_callsign})",
+            callsign="N1MMREMOTE",
+        )
+        try:
+            self.change_frequency(freq_khz, direction, operator)
+        except Exception as e:
+            logger.warning("remote-retune failed: %s", e)
+            return False, f"error: {e}"
+        return True, "applied"

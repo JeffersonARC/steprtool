@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 
 
 # Direction names -> byte 7 value in the Step 100 command frame.
-STEP100_DIRECTION_MAP = {
+SDA100_DIRECTION_MAP = {
     "normal": 0x00,
     "180": 0x40
 }
@@ -41,14 +41,14 @@ class SerialConfig:
 
 
 @dataclass
-class Step100Config:
+class SDA100Config:
     serial: SerialConfig
     wait_seconds: int
     direction: str       # "normal" | "180" 
 
     @property
     def direction_byte(self) -> int:
-        return STEP100_DIRECTION_MAP[self.direction]
+        return SDA100_DIRECTION_MAP[self.direction]
 
 
 @dataclass
@@ -66,6 +66,19 @@ class UdpConfig:
 
 
 @dataclass
+class EmailConfig:
+    """IMAP polling settings for lightning-detector alert emails."""
+    enabled: bool
+    imap_host: str
+    imap_port: int
+    username: str
+    password: str
+    poll_seconds: int
+    walkback_days: int
+    allowed_senders: list[str]   # lowercase email addresses; empty = allow all
+
+
+@dataclass
 class WebConfig:
     host: str
     port: int
@@ -76,9 +89,14 @@ class WebConfig:
 @dataclass
 class Config:
     web: WebConfig
-    step100: Step100Config
+    sda100: SDA100Config
     dcu2: Dcu2Config
     udp: UdpConfig
+    email: EmailConfig
+    ic7300_url: str = ""
+    calendar_url: str = ""
+    chat_url: str = ""
+    relay_secret: str = ""
 
 
 class ConfigError(Exception):
@@ -159,17 +177,17 @@ def load_config(env_path: Path | None = None) -> Config:
         key_file=Path(_env("KEY_FILE", "certs/key.pem")),
     )
 
-    step100_direction = _env("STEP100_DIRECTION", "normal").strip().lower()
-    if step100_direction not in STEP100_DIRECTION_MAP:
+    sda100_direction = _env("SDA100_DIRECTION", "normal").strip().lower()
+    if sda100_direction not in SDA100_DIRECTION_MAP:
         raise ConfigError(
-            f"STEP100_DIRECTION must be one of {list(STEP100_DIRECTION_MAP)} "
-            f"(got {step100_direction!r})"
+            f"SDA100_DIRECTION must be one of {list(SDA100_DIRECTION_MAP)} "
+            f"(got {sda100_direction!r})"
         )
 
-    step100 = Step100Config(
-        serial=_load_serial("STEP100"),
-        wait_seconds=_env_int("STEP100_WAIT_SECONDS", 10),
-        direction=step100_direction,
+    sda100 = SDA100Config(
+        serial=_load_serial("SDA100"),
+        wait_seconds=_env_int("SDA100_WAIT_SECONDS", 10),
+        direction=sda100_direction,
     )
 
     dcu2 = Dcu2Config(
@@ -198,9 +216,44 @@ def load_config(env_path: Path | None = None) -> Config:
         freq_change_tens_of_hz=freq_change,
     )
 
-    if step100.wait_seconds < 0:
-        raise ConfigError("STEP100_WAIT_SECONDS must be >= 0")
+    email_enabled = _env_bool("EMAIL_ENABLED", False)
+    email_password = _env("EMAIL_PASSWORD", "")
+    email_username = _env("EMAIL_USERNAME", "").strip()
+    if email_enabled:
+        if not email_username:
+            raise ConfigError("EMAIL_USERNAME is required when EMAIL_ENABLED=true")
+        if not email_password:
+            raise ConfigError("EMAIL_PASSWORD is required when EMAIL_ENABLED=true")
+
+    senders_raw = _env("EMAIL_ALLOWED_SENDERS", "")
+    allowed_senders = [
+        s.strip().lower() for s in senders_raw.split(",") if s.strip()
+    ]
+
+    email = EmailConfig(
+        enabled=email_enabled,
+        imap_host=_env("EMAIL_IMAP_HOST", "imap.gmail.com").strip(),
+        imap_port=_env_int("EMAIL_IMAP_PORT", 993),
+        username=email_username,
+        password=email_password,
+        poll_seconds=_env_int("EMAIL_POLL_SECONDS", 10),
+        walkback_days=_env_int("EMAIL_WALKBACK_DAYS", 30),
+        allowed_senders=allowed_senders,
+    )
+    if email.poll_seconds < 2:
+        raise ConfigError("EMAIL_POLL_SECONDS must be >= 2")
+    if email.walkback_days < 1:
+        raise ConfigError("EMAIL_WALKBACK_DAYS must be >= 1")
+
+    if sda100.wait_seconds < 0:
+        raise ConfigError("SDA100_WAIT_SECONDS must be >= 0")
     if dcu2.wait_seconds < 0:
         raise ConfigError("DCU2_WAIT_SECONDS must be >= 0")
 
-    return Config(web=web, step100=step100, dcu2=dcu2, udp=udp)
+    return Config(
+        web=web, sda100=sda100, dcu2=dcu2, udp=udp, email=email,
+        ic7300_url=_env("IC7300_URL", "").strip(),
+        calendar_url=_env("CALENDAR_URL", "").strip(),
+        chat_url=_env("CHAT_URL", "").strip(),
+        relay_secret=_env("RELAY_SECRET", "").strip(),
+    )

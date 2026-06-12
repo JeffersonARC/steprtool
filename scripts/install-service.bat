@@ -50,8 +50,8 @@ if errorlevel 1 (
 )
 
 nssm set %SERVICE_NAME% AppDirectory   "%ROOT%"
-nssm set %SERVICE_NAME% DisplayName    "Jefferson ARC StepIR Antenna Control"
-nssm set %SERVICE_NAME% Description    "Web server controlling Step 100 and DCU-2 via serial."
+nssm set %SERVICE_NAME% DisplayName    "Jefferson Amateur Radio Club Remote Shack"
+nssm set %SERVICE_NAME% Description    "Web server for managing remote operations for Flex, IC 7300, and SteppIR"
 nssm set %SERVICE_NAME% Start          SERVICE_AUTO_START
 nssm set %SERVICE_NAME% AppStdout      "%ROOT%\logs\service.out.log"
 nssm set %SERVICE_NAME% AppStderr      "%ROOT%\logs\service.err.log"

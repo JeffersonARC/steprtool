@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Jefferson ARC StepIR Antenna Control</title>
+  <title>Jefferson Amateur Radio Club Remote Shack</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
@@ -25,13 +25,24 @@
 </div>
 
 <header class="topbar">
-  <div class="brand">Jefferson ARC <span class="brand-accent">StepIR Antenna Control</span></div>
+  <div class="brand">Jefferson Amateur Radio Club <span class="brand-accent">Remote Shack</span></div>
   <div class="operator-strip">
     <span class="op-label">Operator</span>
     <span id="op-display" class="op-display">—</span>
     <button type="button" id="op-change" class="link-btn">Change</button>
   </div>
 </header>
+
+<!-- Antenna-disconnect alert. Hidden by default; .visible class added by JS
+     when antenna_state.status == 'disconnected'. -->
+<div class="antenna-alert" id="antenna-alert" hidden>
+  <div class="antenna-alert-inner">
+    <span class="antenna-alert-icon">⚠</span>
+    <span class="antenna-alert-text" id="antenna-alert-text">
+      Antennas were disconnected
+    </span>
+  </div>
+</div>
 
 <!-- Strip of operators currently connected. Populated from the 'online_users'
      socket event. Each user appears once, deduped by callsign. -->
@@ -40,38 +51,55 @@
   <div class="online-pills" id="online-pills"></div>
 </div>
 
-<main class="grid">
+{% if ic7300_url %}
+<!-- Cross-link to the IC-7300 control page. Rendered only when IC7300_URL
+     is configured in .env; the rest of the page assumes it's about the
+     Flex 6300 + SteppIR. -->
+<aside class="ic7300-banner" aria-label="Switch to IC-7300">
+  <div class="ic7300-banner-inner">
+    <div class="ic7300-text">
+      <strong class="ic7300-headline">This page controls the SteppIR antenna on the Flex 6300.</strong>
+      <span class="ic7300-sub">To control the IC-7300 instead, click here →</span>
+    </div>
+    <a href="{{ ic7300_url }}" target="_blank" rel="noopener" class="ic7300-btn">
+      IC-7300 <span class="ic7300-btn-arrow">↗</span>
+    </a>
+  </div>
+</aside>
+{% endif %}
 
-  <!-- Step 100 panel -->
-  <section class="panel" data-device="step100">
+<main class="grid" id="main-grid">
+
+  <!-- SDA 100 panel -->
+  <section class="panel" data-device="sda100">
     <div class="panel-head">
-      <h2>Step 100</h2>
-      <div class="panel-port" id="step100-port">port —</div>
+      <h2>SDA 100</h2>
+      <div class="panel-port" id="sda100-port">port —</div>
     </div>
 
     <fieldset class="direction-fieldset">
       <legend>Direction</legend>
       <div class="direction-options">
-        <label><input type="radio" name="step100-direction" value="normal" checked> <span>Normal</span></label>
-        <label><input type="radio" name="step100-direction" value="180"> <span>180°</span></label>
+        <label><input type="radio" name="sda100-direction" value="normal" checked> <span>Normal</span></label>
+        <label><input type="radio" name="sda100-direction" value="180"> <span>180°</span></label>
       </div>
     </fieldset>
 
     <label class="field">
       <span>Frequency (kHz)</span>
-      <input type="number" id="step100-freq" min="1" max="167772" step="1" inputmode="numeric">
+      <input type="number" id="sda100-freq" min="1" max="167772" step="1" inputmode="numeric">
     </label>
 
     <div class="button-row">
-      <button type="button" id="btn-step100-freq" class="btn-primary">Change Frequency</button>
-      <button type="button" id="btn-step100-home" class="btn-secondary">Home</button>
-      <button type="button" id="btn-step100-cal" class="btn-secondary">Calibrate</button>
+      <button type="button" id="btn-sda100-freq" class="btn-primary">Change Frequency</button>
+      <button type="button" id="btn-sda100-home" class="btn-secondary">Home</button>
+      <button type="button" id="btn-sda100-cal" class="btn-secondary">Calibrate</button>
     </div>
 
-    <div class="device-state" id="step100-state">
-      <span class="state-dot" id="step100-dot"></span>
-      <span class="state-text" id="step100-text">idle</span>
-      <span class="state-countdown" id="step100-countdown"></span>
+    <div class="device-state" id="sda100-state">
+      <span class="state-dot" id="sda100-dot"></span>
+      <span class="state-text" id="sda100-text">idle</span>
+      <span class="state-countdown" id="sda100-countdown"></span>
     </div>
   </section>
 

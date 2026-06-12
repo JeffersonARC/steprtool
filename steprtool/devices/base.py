@@ -1,6 +1,6 @@
 """Shared device-controller machinery.
 
-Each device (Step 100, DCU-2) has:
+Each device (SDA 100, DCU-2) has:
   * a single-in-flight lock with a configured wait time
   * a serial port (or "mock" mode that skips the write)
   * broadcasts to all connected web clients via Socket.IO
@@ -26,7 +26,6 @@ from ..config import SerialConfig
 logger = logging.getLogger(__name__)
 
 
-# pyserial parity letters map directly to module constants.
 _PARITY_MAP = {
     "N": serial.PARITY_NONE,
     "E": serial.PARITY_EVEN,
@@ -65,17 +64,14 @@ class Operator:
 @dataclass
 class LastAction:
     """Snapshot of the most recent command for any device, shared with clients."""
-    device: str            # "step100" or "dcu2"
-    action: str            # short description, e.g. "Change Frequency"
-    detail: str            # human-readable, e.g. "14250 kHz, direction=normal"
-    bytes_hex: str         # hex byte string, may be "" for not-implemented
+    device: str            # "sda100" or "dcu2"
+    action: str
+    detail: str
+    bytes_hex: str
     status: str            # "SENT" | "MOCK" | "NOT IMPLEMENTED"
-    operator: str          # "KJ5BYZ Brownell"
-    timestamp: str         # ISO 8601 UTC
+    operator: str
+    timestamp: str
     inputs: dict = field(default_factory=dict)
-    # 'inputs' lets the server push committed values back to every browser's
-    # input boxes so a command issued on one screen is reflected on the others.
-    # Keys are stable client-side identifiers, e.g. "step100_freq" or "dcu2_az".
 
     def to_dict(self) -> dict:
         return {
@@ -101,7 +97,7 @@ class DeviceController:
     """Base class providing serial I/O and the in-flight lock."""
 
     def __init__(self, name: str, serial_cfg: SerialConfig, wait_seconds: int, socketio):
-        self.name = name              # "step100" or "dcu2"
+        self.name = name
         self.serial_cfg = serial_cfg
         self.wait_seconds = wait_seconds
         self.socketio = socketio
@@ -111,10 +107,7 @@ class DeviceController:
         self._busy_seconds_total = 0
         self._busy_seconds_remaining = 0
 
-    # ------------------------------------------------------------------ state
-
     def state(self) -> dict:
-        """Snapshot for late-joining clients."""
         with self._state_lock:
             return {
                 "device": self.name,
@@ -125,10 +118,7 @@ class DeviceController:
                 "port": self.serial_cfg.port if not self.serial_cfg.is_mock else "MOCK",
             }
 
-    # --------------------------------------------------------------- lock API
-
     def _try_acquire(self) -> None:
-        """Acquire the device lock or raise DeviceBusy."""
         with self._state_lock:
             if self._busy:
                 raise DeviceBusy(self._busy_seconds_remaining)
@@ -137,17 +127,14 @@ class DeviceController:
             self._busy_seconds_remaining = self.wait_seconds
 
     def _release_lock(self) -> None:
-        """Force-release the lock (used for rollback when a command fails)."""
         with self._state_lock:
             self._busy = False
             self._busy_seconds_total = 0
             self._busy_seconds_remaining = 0
 
     def _start_wait_timer(self) -> None:
-        """Run the countdown in a background task; release the lock at end."""
         def _run():
             total = self.wait_seconds
-            # Emit an initial 'locked' so late clients catch up immediately.
             self.socketio.emit(
                 "device_locked",
                 {"device": self.name, "seconds_remaining": total, "seconds_total": total},
@@ -171,10 +158,7 @@ class DeviceController:
 
         self.socketio.start_background_task(_run)
 
-    # ---------------------------------------------------------------- serial
-
     def _write_bytes(self, data: bytes) -> str:
-        """Write to the serial port (or skip in mock mode). Returns 'SENT' or 'MOCK'."""
         if self.serial_cfg.is_mock:
             logger.info("%s MOCK write: %s", self.name, format_bytes_hex(data))
             return "MOCK"
@@ -199,8 +183,44 @@ class DeviceController:
             ser.close()
         logger.info("%s SENT %s: %s", self.name, self.serial_cfg.port, format_bytes_hex(data))
         return "SENT"
+    
+    def _write_then_read_bytes(self, data: bytes, read_count: int) -> tuple[str, bytes]:
+        """Write data then read a response on the same open port.
 
-    # --------------------------------------------------------- common helper
+        Opens and closes the port exactly like _write_bytes() does, but keeps
+        it open between the write and the read so the response isn't lost.
+        Returns (status, raw_bytes); status is "SENT" or "MOCK".
+        In MOCK mode raw_bytes is empty — callers must handle that.
+        """
+        if self.serial_cfg.is_mock:
+            logger.info("%s MOCK write+read: %s", self.name, format_bytes_hex(data))
+            return "MOCK", b""
+
+        ser = serial.Serial(
+            port=self.serial_cfg.port,
+            baudrate=self.serial_cfg.baud,
+            bytesize=_BYTESIZE_MAP[self.serial_cfg.bytesize],
+            parity=_PARITY_MAP[self.serial_cfg.parity],
+            stopbits=_STOPBITS_MAP[self.serial_cfg.stopbits],
+            dsrdtr=False,
+            rtscts=False,
+            timeout=1.5,
+            write_timeout=2.0,
+        )
+        try:
+            ser.dtr = self.serial_cfg.dtr
+            ser.rts = self.serial_cfg.rts
+            ser.reset_input_buffer()
+            ser.write(data)
+            ser.flush()
+            raw = ser.read(read_count)
+        finally:
+            ser.close()
+        logger.info(
+            "%s SENT+READ %s: wrote %s, read %d byte(s)",
+            self.name, self.serial_cfg.port, format_bytes_hex(data), len(raw),
+        )
+        return "SENT", raw
 
     def _broadcast_last_action(self, last: LastAction) -> None:
         self.socketio.emit("last_action", last.to_dict())

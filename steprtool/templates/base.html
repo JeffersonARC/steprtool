@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Jefferson Amateur Radio Club Remote Shack</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='img/favicon.ico') }}">
+</head>
+<body data-page="{% block page_id %}{% endblock %}">
+
+<!-- Operator identification modal. Shown on first visit, hidden afterwards. -->
+<div class="modal-backdrop" id="operator-modal" role="dialog" aria-modal="true">
+  <div class="modal">
+    <h2>Operator identification</h2>
+    <p class="modal-help">Enter your name and callsign. Both are required and will be logged with every command.</p>
+    <label>Name
+      <input type="text" id="op-name" autocomplete="off" required>
+    </label>
+    <label>Callsign
+      <input type="text" id="op-callsign" autocomplete="off" required>
+    </label>
+    <p class="modal-error" id="op-error" hidden></p>
+    <button type="button" id="op-save" class="btn-primary">Save</button>
+  </div>
+</div>
+
+<header class="topbar">
+  <div class="brand">Jefferson Amateur Radio Club <span class="brand-accent">Remote Shack</span></div>
+  <div class="topbar-extras">
+    {% block topbar_extras %}{% endblock %}
+    <div class="operator-strip">
+      <span class="op-label">Operator</span>
+      <span id="op-display" class="op-display">—</span>
+      <button type="button" id="op-change" class="link-btn">Change</button>
+    </div>
+  </div>
+</header>
+
+<!-- Antenna-disconnect alert. Hidden by default; .visible class added by JS
+     when antenna_state.status == 'disconnected'. -->
+<div class="antenna-alert" id="antenna-alert" hidden>
+  <div class="antenna-alert-inner">
+    <span class="antenna-alert-icon">⚠</span>
+    <span class="antenna-alert-text" id="antenna-alert-text">
+      Antennas were disconnected
+    </span>
+  </div>
+</div>
+
+<!-- Operators currently connected. -->
+<div class="online-users" id="online-users-bar">
+  <span class="online-label">Online</span>
+  <div class="online-pills" id="online-pills"></div>
+</div>
+
+{% block content %}{% endblock %}
+
+<footer class="footerbar">
+  <span id="conn-status" class="conn-status conn-down">disconnected</span>
+  <span class="footer-spacer"></span>
+  <span class="version">steprtool</span>
+</footer>
+
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"
+        integrity="sha384-2huaZvOR9iDzHqslqwpR87isEmrfxqyWOF7hr7BY6KG0+hVKLoEXMPUJw3ynWuhO"
+        crossorigin="anonymous"></script>
+<script src="{{ url_for('static', filename='js/common.js') }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

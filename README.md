@@ -1,6 +1,6 @@
 # steprtool
 
-Web-based control for a StepIR Step 100 antenna controller and a hy-gain DCU-2
+Web-based control for a SteppIR SDA 100 antenna controller and a hy-gain DCU-2
 rotator controller, used by Jefferson Amateur Radio Club operators on a Flex
 6300 setup. Runs on Windows 11. One computer (computer A) has the physical
 USB-to-serial connections to both devices; operators on the LAN (or remotely
@@ -17,7 +17,7 @@ copy .env.example .env
 
 Open https://localhost:8443/ in a browser. Your browser will warn about the
 self-signed certificate; accept it. Enter a name and callsign in the modal,
-then exercise the controls. With `STEP100_PORT=MOCK` and `DCU2_PORT=MOCK` in
+then exercise the controls. With `SDA100_PORT=MOCK` and `DCU2_PORT=MOCK` in
 `.env` (the defaults), commands are computed and the bytes shown in the Last
 Action panel, but nothing is written to a serial port.
 
@@ -30,17 +30,17 @@ All settings live in `.env`. Copy `.env.example` and edit:
 | `WEB_HOST`                  | `0.0.0.0`      | listen address |
 | `WEB_PORT`                  | `8443`         | HTTPS port |
 | `CERT_FILE` / `KEY_FILE`    | `certs/*.pem`  | auto-generated self-signed on first run |
-| `STEP100_PORT`              | `MOCK`         | COM port (e.g. `COM3`) or `MOCK` |
-| `STEP100_BAUD`              | `4800`         | |
-| `STEP100_BYTESIZE`          | `8`            | |
-| `STEP100_PARITY`            | `N`            | N/E/O/M/S |
-| `STEP100_STOPBITS`          | `1`            | 1, 1.5, or 2 |
-| `STEP100_DTR` / `STEP100_RTS` | `false`      | line states after open |
-| `STEP100_WAIT_SECONDS`      | `10`           | lock duration after a command |
-| `STEP100_DIRECTION`         | `normal`       | element pattern: `normal`, `180` |
+| `SDA100_PORT`              | `MOCK`         | COM port (e.g. `COM3`) or `MOCK` |
+| `SDA100_BAUD`              | `4800`         | |
+| `SDA100_BYTESIZE`          | `8`            | |
+| `SDA100_PARITY`            | `N`            | N/E/O/M/S |
+| `SDA100_STOPBITS`          | `1`            | 1, 1.5, or 2 |
+| `SDA100_DTR` / `SDA100_RTS` | `false`      | line states after open |
+| `SDA100_WAIT_SECONDS`      | `10`           | lock duration after a command |
+| `SDA100_DIRECTION`         | `normal`       | element pattern: `normal`, `180` |
 | `DCU2_PORT`                 | `MOCK`         | |
 | `DCU2_BAUD`                 | `4800`         | |
-| ...                         |                | (same shape as Step 100) |
+| ...                         |                | (same shape as SDA 100) |
 | `DCU2_WAIT_SECONDS`         | `60`           | rotator can take up to ~1 min |
 
 To switch a device from mock to live, change its `*_PORT` from `MOCK` to the
@@ -48,7 +48,7 @@ real COM port name and restart steprtool.
 
 ## Wire protocols
 
-**Step 100** — 11-byte fixed frame, no response from device, write-and-wait:
+**SDA 100** — 11-byte fixed frame, no response from device, write-and-wait:
 
 | Offset | Value | Meaning |
 |---|---|---|
@@ -77,7 +77,7 @@ command (default 60s, the worst-case full-rotation time).
 
 ## UI
 
-* **Step 100 panel**: frequency input (kHz), buttons for Change Frequency,
+* **SDA 100 panel**: frequency input (kHz), buttons for Change Frequency,
   Home, Calibrate. Only Change Frequency requires the input.
 * **DCU-2 panel**: azimuth input (0–359°), eight compass quick-fill buttons
   (N, NE, E, SE, S, SW, W, NW), Change Direction button.
@@ -131,7 +131,7 @@ steprtool/
   config.py                     .env loader and validator
   devices/
     base.py                     lock / wait timer / serial / broadcast
-    step100.py                  Step 100 command builder + actions
+    sda100.py                  SDA 100 command builder + actions
     dcu2.py                     DCU-2 command builder + actions
   routes/
     api.py                      JSON command endpoints

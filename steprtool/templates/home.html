@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block page_id %}home{% endblock %}
+
+{% block content %}
+<main class="home-main" id="main-grid">
+
+  <section class="home-intro">
+    <!-- Edit this section to add your own introduction text. -->
+  </section>
+
+  <section class="home-tiles">
+    {% if chat_url %}
+    <a href="{{ chat_url }}" target="_blank" rel="noopener"
+       class="home-tile" data-tile="chat">
+      <div class="tile-icon" aria-hidden="true">💬</div>
+      <div class="tile-label">Chat</div>
+      <div class="tile-sub">Chat with other operators (opens in new tab)</div>
+    </a>
+    {% endif %}
+
+    {% if calendar_url %}
+    <a href="{{ calendar_url }}" target="_blank" rel="noopener"
+       class="home-tile" data-tile="calendar">
+      <div class="tile-icon" aria-hidden="true">📅</div>
+      <div class="tile-label">Sign up for remote operation</div>
+      <div class="tile-sub">Reserve your slot on the calendar (opens in new tab)</div>
+    </a>
+    {% endif %}
+
+    {% if ic7300_url %}
+    <a href="{{ ic7300_url }}" target="_blank" rel="noopener"
+       class="home-tile" data-tile="ic7300">
+      <img src="{{ url_for('static', filename='img/ic_7300.png') }}"
+           alt="" class="tile-img">
+      <div class="tile-label">Use the IC-7300</div>
+      <div class="tile-sub">POTACAT &amp; ECHOCAT control page (opens in new tab)</div>
+    </a>
+    {% endif %}
+
+    <a href="{{ url_for('pages.steprtool') }}"
+       class="home-tile" data-tile="steprtool">
+      <img src="{{ url_for('static', filename='img/steppIR.jpg') }}"
+           alt="" class="tile-img">
+      <div class="tile-label">Manage the SteppIR antenna</div>
+      <div class="tile-sub">Frequency, direction, rotator (Flex 6300)</div>
+    </a>
+  </section>
+
+  <section class="activity-panel">
+    <div class="activity-head">
+      <h2>Recent activity</h2>
+      <span class="activity-sub">Last 30 events</span>
+    </div>
+    <ul class="activity-list" id="activity-list">
+      {% if activity_events %}
+        {% for ev in activity_events %}
+        <li class="activity-row" data-ts="{{ ev.timestamp }}">
+          <span class="activity-ts" data-ts="{{ ev.timestamp }}">{{ ev.timestamp }}</span>
+          <span class="activity-msg">{{ ev.message }}</span>
+        </li>
+        {% endfor %}
+      {% else %}
+        <li class="activity-empty">No activity yet.</li>
+      {% endif %}
+    </ul>
+  </section>
+
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/home.js') }}"></script>
+{% endblock %}
