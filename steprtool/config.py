@@ -225,7 +225,7 @@ def load_config(env_path: Path | None = None) -> Config:
         if not email_password:
             raise ConfigError("EMAIL_PASSWORD is required when EMAIL_ENABLED=true")
 
-    senders_raw = _env("EMAIL_ALLOWED_SENDERS", "")
+    senders_raw = _env("EMAIL_ALLOWED_SENDERS", "['lightningrigsaver@nextstepcomm.net', 'lrs@w5gad.org', 'steprtool.alert.jeffersonarc@gmail.com']")
     allowed_senders = [
         s.strip().lower() for s in senders_raw.split(",") if s.strip()
     ]
@@ -236,8 +236,8 @@ def load_config(env_path: Path | None = None) -> Config:
         imap_port=_env_int("EMAIL_IMAP_PORT", 993),
         username=email_username,
         password=email_password,
-        poll_seconds=_env_int("EMAIL_POLL_SECONDS", 10),
-        walkback_days=_env_int("EMAIL_WALKBACK_DAYS", 30),
+        poll_seconds=_env_int("EMAIL_POLL_SECONDS", 15),
+        walkback_days=_env_int("EMAIL_WALKBACK_DAYS", 10),
         allowed_senders=allowed_senders,
     )
     if email.poll_seconds < 2:
