@@ -177,10 +177,12 @@ def create_app(config: Config) -> tuple[Flask, SocketIO]:
         if not isinstance(data, dict):
             return
         target = data.get("target")
-        labels = {"ic7300": "IC-7300", "calendar": "the calendar", "chat": "the chat"}
+        labels = {"ic7300": "POTACAT on the IC-7300", "calendar": "the calendar", "chat": "the chat", "SDA 100": "the SteppIR controller"}
         label = labels.get(target)
         if label is None:
-            return
+            label = f"Posted plans: {target}"
+        else:
+            label = "visited " + label
         sid = request.sid  # type: ignore[attr-defined]
         info = None
         # Pull the operator from the tracker so we don't trust the client.
@@ -190,7 +192,7 @@ def create_app(config: Config) -> tuple[Flask, SocketIO]:
                 break
         if not info:
             return
-        activity.record(f"{info['name']} {info['callsign']} visited {label}")
+        activity.record(f"{info['name']}, {info['callsign']}: {label}")
 
     # ---- UDP listener ----
     udp = UdpListener(
