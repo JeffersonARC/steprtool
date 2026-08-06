@@ -547,3 +547,24 @@ input[type="number"] { -moz-appearance: textfield; }
 .modal input:focus { border-color: var(--accent); }
 .modal-error { color: var(--err); font-size: 14px; margin: 4px 0 12px; }
 .modal .btn-primary { width: 100%; }
+
+.home-tile[data-tile="chat"] textarea {
+    background: var(--bg-input);
+    border: 1px solid var(--border-strong);
+    border-radius: 3px;
+    color: var(--text);
+    font-size: 16px;
+    padding: 12px 14px;
+    outline: none;
+    font-family: inherit;
+    text-transform: none;
+    letter-spacing: 0;
+    width: 100%;
+    margin-top: 20px;
+    min-height: 150px;
+}
+.home-tile[data-tile="chat"] textarea:focus { border-color: var(--accent); }
+.home-tile[data-tile="chat"]  button {
+  width: 100%;
+  margin-top: 20px;
+}

@@ -109,10 +109,12 @@
   const MAX = 30;
   window.socket.on("activity_event", (ev) => {
     if (!ev || !ev.message) return;
+    console.log(ev);
     // If list shows the empty-state placeholder, clear it first.
     const empty = list.querySelector(".activity-empty");
     if (empty) list.innerHTML = "";
     const row = document.createElement("li");
+    console.log(row);
     row.className = "activity-row";
     row.dataset.ts = ev.timestamp || "";
     row.innerHTML =
@@ -123,15 +125,38 @@
     while (list.children.length > MAX) list.removeChild(list.lastChild);
   });
 
+  // // Tile-click instrumentation: tell the server before navigating away.
+  // document.querySelectorAll(".home-tile[data-tile]").forEach((tile) => {
+  //   const target = tile.dataset.tile;
+  //   if (target !== "ic7300" && target !== "calendar" && target !== "chat") return;
+  //   const elem = tile;
+  //   tile.addEventListener("click", () => {
+  //     console.log(window.socket);
+  //     console.log(target);
+  //     try {
+  //       // Fire and forget; default link click then opens the new tab.
+  //       window.socket.emit("activity_visit", { target: target });
+  //     } catch (_) {}
+  //   });
+  // });
+
   // Tile-click instrumentation: tell the server before navigating away.
   document.querySelectorAll(".home-tile[data-tile]").forEach((tile) => {
     const target = tile.dataset.tile;
-    if (target !== "ic7300" && target !== "calendar" && target !== "chat") return;
+    if (target !== "ic7300" && target !== "calendar" && target !== "chat" && target !== "SDA 100") return;
     tile.addEventListener("click", () => {
+      let content = target;
+      if (target == "chat") {
+        content = tile.querySelector("textarea").value;
+        if (content == "") return;
+        tile.querySelector("textarea").value = "";
+      }
       try {
         // Fire and forget; default link click then opens the new tab.
-        window.socket.emit("activity_visit", { target: target });
-      } catch (_) {}
+        window.socket.emit("activity_visit", { target: content });
+      } catch (_) {console.log(content)}
     });
   });
+
+
 })();

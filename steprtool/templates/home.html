@@ -9,14 +9,12 @@
   </section>
 
   <section class="home-tiles">
-    {% if chat_url %}
-    <a href="{{ chat_url }}" target="_blank" rel="noopener"
-       class="home-tile" data-tile="chat">
-      <div class="tile-icon" aria-hidden="true">💬</div>
-      <div class="tile-label">Chat</div>
-      <div class="tile-sub">Chat with other operators (opens in new tab)</div>
-    </a>
-    {% endif %}
+    <div class="home-tile" data-tile="chat">
+      <div class="tile-label">Post your plans</div>
+      <div class="tile-sub">Shows in Recent Activity</div>
+      <textarea id="post-plans autocomplete="off"></textarea>
+      <button type="button" class="post-save btn-primary">Save</button>
+    </div>
 
     {% if calendar_url %}
     <a href="{{ calendar_url }}" target="_blank" rel="noopener"
@@ -38,7 +36,7 @@
     {% endif %}
 
     <a href="{{ url_for('pages.steprtool') }}"
-       class="home-tile" data-tile="steprtool">
+       class="home-tile" data-tile="SDA 100">
       <img src="{{ url_for('static', filename='img/steppIR.jpg') }}"
            alt="" class="tile-img">
       <div class="tile-label">Manage the SteppIR antenna</div>

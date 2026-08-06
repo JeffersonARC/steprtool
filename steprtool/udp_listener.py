@@ -11,7 +11,7 @@ from typing import Iterable
 
 logger = logging.getLogger(__name__)
 
-_RECV_BUFSIZE = 8192
+_RECV_BUFSIZE = 32768
 
 
 class UdpListener:
