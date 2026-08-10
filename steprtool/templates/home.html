@@ -4,13 +4,28 @@
 {% block content %}
 <main class="home-main" id="main-grid">
 
-  <section class="home-intro">
-    <!-- Edit this section to add your own introduction text. -->
+  <section class="home-intro balanced-columns">
+    <h3 style="margin-top:0px">Home Page for JeffersonARC Remote</h3>
+    <p>This is the place to come for using any of the club's remotely controlled radios. From here you can:</p>
+    <ul>
+      <li>find out if the antennas have been disconnected for lightning</li>
+      <li>post a message for other remote operators</li>
+      <li>book operations time in advnce in the calendar</li>
+      <li>control the SteppIR antenna's SDA 100 antenna controller</li>
+      <li>go to the webpage to use ECHOCAT to control the IC-7300</li>
+      <li>(and someday control the SteppIR rotator>)</li>
+    </ul>
+    <p>Please always come to this page first when planning to operate any of the radios remotely, so other operators can see who is here.</p>
+    <p>The lightning detection is not 100% accurate, so if you are CERTAIN, the banner is wrong, you can change the state by adding
+      query parameters to the URL, like this: https://100.98.246.94:6300?antennas=connected&callsign=
+      `&lt;your callsign&gt; (or disconnected)
+    </p>
+    <p>To be added to the mailing list for remote operations, email remote@w5gad.org</p>
   </section>
 
   <section class="home-tiles">
     <div class="home-tile" data-tile="chat">
-      <div class="tile-label">Post your plans</div>
+      <div class="tile-label">Post a message</div>
       <div class="tile-sub">Shows in Recent Activity</div>
       <textarea id="post-plans autocomplete="off" placeholder="Enter post here"></textarea>
       <button type="button" class="post-save btn-primary">Save</button>

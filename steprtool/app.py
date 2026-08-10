@@ -180,7 +180,7 @@ def create_app(config: Config) -> tuple[Flask, SocketIO]:
         labels = {"ic7300": "POTACAT on the IC-7300", "calendar": "the calendar", "chat": "the chat", "SDA 100": "the SteppIR controller"}
         label = labels.get(target)
         if label is None:
-            label = f"Posted plans: {target}"
+            label = f"said {target}"
         else:
             label = "visited " + label
         sid = request.sid  # type: ignore[attr-defined]
